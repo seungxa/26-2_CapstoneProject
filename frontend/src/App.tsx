@@ -6,6 +6,8 @@ import Apply from './pages/Apply'
 import Practice from './pages/Practice'
 import Track from './pages/Track'
 import './App.css'
+import Signup from './pages/Signup'
+import Login from './pages/Login'
 
 function App() {
   return (
@@ -30,6 +32,8 @@ function App() {
             <Route path="/apply" element={<Apply />} />
             <Route path="/practice" element={<Practice />} />
             <Route path="/track" element={<Track />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/login" element={<Login />} />
           </Routes>
         </main>
       </div>
