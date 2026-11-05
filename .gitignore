@@ -1,0 +1,16 @@
+# Practice/Track local secrets, user data and generated verification output
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+backend/jobseeker.db
+backend/recordings/
+backend/models/
+backend/evals/stt/data/
+frontend/test-results/
+frontend/playwright-report/
+frontend/*.tsbuildinfo
+.integration/
+.superpowers/

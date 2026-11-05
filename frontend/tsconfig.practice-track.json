@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.app.json","compilerOptions":{"tsBuildInfoFile":"./node_modules/.cache/tsconfig.practice-track.tsbuildinfo"},"include":["src/features/practice-track","src/pages/Practice.tsx","src/pages/Track.tsx"]}

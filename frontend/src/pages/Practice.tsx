@@ -1,5 +1,3 @@
-function Practice() {
-  return <div><h2>Practice</h2><p>Prepare for your interviews.</p></div>
-}
-
-export default Practice
+import {lazy,Suspense} from 'react';
+const PracticeFeature=lazy(()=>import('../features/practice-track/routes').then(module=>({default:module.PracticeFeature})));
+export default function Practice(){return <Suspense fallback={<p role="status">면접 연습을 불러오는 중…</p>}><PracticeFeature/></Suspense>;}

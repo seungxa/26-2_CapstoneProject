@@ -283,12 +283,10 @@ export function normalizeArchive(input: unknown): Archive {
         : {}
 
     return Object.fromEntries(
-      fieldGroups[group].map(field => [
-        field.key,
-        typeof record[field.key] === 'string'
-          ? record[field.key]
-          : '',
-      ])
+      fieldGroups[group].map(field => {
+        const fieldValue = record[field.key]
+        return [field.key, typeof fieldValue === 'string' ? fieldValue : '']
+      })
     )
   }
 
