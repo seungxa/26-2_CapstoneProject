@@ -1,0 +1,43 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>범용 지원서 구조 테스트</title>
+<style>
+body{font:15px system-ui;max-width:860px;margin:24px auto;background:#f6f7f8;color:#1d2a33}
+section{background:#fff;border:1px solid #d8dee3;padding:16px 20px;margin:14px 0}
+.row{display:flex;gap:12px;align-items:center;margin:10px 0}.tit{width:140px;font-weight:600}.cont{flex:1}
+.tg{padding:6px 16px;border:1px solid #9aa;background:#fff}.tg.on{background:#1d6b52;color:#fff}
+.rd input{display:none}.rd label{display:inline-block;padding:6px 14px;border:1px solid #9aa;margin-right:4px;cursor:pointer}.rd input:checked+label{background:#1d6b52;color:#fff}
+.select2-selection,.custom-select{display:inline-block;min-width:160px;padding:6px 10px;border:1px solid #9aa;cursor:pointer;background:#fff}
+.select2-results,.opts{position:absolute;background:#fff;border:1px solid #9aa;list-style:none;margin:0;padding:0;z-index:20}.select2-results li,.opts li{padding:6px 12px;cursor:pointer}
+.layer{position:fixed;left:50%;top:15%;transform:translateX(-50%);width:420px;min-height:200px;background:#fff;border:2px solid #333;padding:16px;z-index:50}
+.layer li{cursor:pointer;padding:4px 0}
+.guide{color:#667;font-size:13px;margin:4px 0 0}
+</style></head><body>
+<h1>범용 지원서 구조 테스트</h1>
+<form id="apply" onsubmit="return false">
+<section><h2>기본정보</h2>
+  <div class="row"><div class="tit">이름</div><div class="cont"><input name="nm" id="nm"></div></div>
+  <div class="row"><div class="tit">영문</div><div class="cont"><name-box id="namebox"></name-box></div></div>
+  <div class="row"><div class="tit">성별</div><div class="cont"><div class="btns"><button type="button" class="tg" id="tg-m">남</button><button type="button" class="tg" id="tg-f">여</button></div></div></div>
+  <div class="row"><div class="tit">취업지원대상자</div><div class="cont rd"><input type="radio" id="v1" name="vet"><label for="v1">대상</label><input type="radio" id="v2" name="vet"><label for="v2">비대상</label></div></div>
+</section>
+<section><h2>병역사항</h2>
+  <div class="row"><div class="tit">군별</div><div class="cont"><select id="branch" style="display:none"><option value="">선택</option><option value="A">육군</option><option value="N">해군</option><option value="F">공군</option></select><span class="select2-container"><span class="select2-selection" role="combobox" id="branch-ui">선택</span></span></div></div>
+  <div class="row"><div class="tit">군필여부</div><div class="cont"><div class="custom-select" id="svc"><span class="txt">선택하세요</span></div><input type="hidden" id="svc-value"></div></div>
+</section>
+<section><h2>학력사항</h2>
+  <div class="row"><div class="tit">최종학력</div><div class="cont"><select id="final"><option value="">선택</option><option value="1">고졸</option><option value="2">초대졸(2,3년)</option><option value="3">대졸(4년)</option><option value="4">석사</option><option value="5">박사</option></select></div></div>
+  <fieldset><legend>고등학교</legend>
+    <div class="row"><div class="tit">학교명</div><div class="cont"><input id="hs" maxlength="20"> 고등학교<p class="guide">※ 학교명만 입력 (예: 서울고등학교 → 서울)</p></div></div>
+    <div class="row"><div class="tit">출신고교 소재지</div><div class="cont"><input id="hs-loc"></div></div>
+  </fieldset>
+  <fieldset><legend>대학교</legend>
+    <div class="row"><div class="tit">학교명</div><div class="cont"><input id="uni" readonly><button type="button" id="uni-find">학교검색</button></div></div>
+    <div class="row"><div class="tit">전공</div><div class="cont"><input id="major" readonly><button type="button" id="major-find">전공검색</button></div></div>
+    <div class="row"><div class="tit">출신대학</div><div class="cont"><input id="uni-short"><p class="guide">약칭으로 입력하세요. 예) 한국대</p></div></div>
+  </fieldset>
+</section>
+<section><h2>경력사항</h2><iframe id="career" src="demo-frame.html" style="width:100%;height:140px;border:0"></iframe></section>
+<section><h2>희망조건</h2><div class="row"><div class="tit">희망연봉</div><div class="cont"><input id="pay"></div></div></section>
+<button type="button" id="next">다음</button> <button type="submit" id="submit">제출</button>
+</form>
+<div class="layer" id="layer" hidden><h3 id="layer-title">검색</h3><input id="layer-q" placeholder="검색어"> <button type="button" id="layer-go">검색</button><ul id="layer-list"></ul><button type="button" id="layer-close">닫기</button></div>
+<script src="demo-generic.js"></script></body></html>

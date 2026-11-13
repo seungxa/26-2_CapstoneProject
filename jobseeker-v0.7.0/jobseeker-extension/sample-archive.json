@@ -1,0 +1,38 @@
+{
+  "profile": {
+    "name": "테스트지원자",
+    "email": "applicant@example.com",
+    "phone": "010-0000-0000",
+    "address": "예시로 123",
+    "nameHanja": "試驗",
+    "nameEnglish": "Test Applicant",
+    "birth": "2000-02-29",
+    "gender": "여성",
+    "emergencyPhone": "02-123-4567",
+    "postcode": "00000",
+    "addressDetail": "테스트 상세주소"
+  },
+  "education": [
+    {
+      "school": "예시대학교 수원캠퍼스",
+      "major": "소프트웨어학과",
+      "start": "2022-03",
+      "end": "2027-02",
+      "status": "졸업예정",
+      "degree": "학사"
+    }
+  ],
+  "experience": [
+    {
+      "company": "예시기업",
+      "department": "개발팀",
+      "role": "개발 인턴",
+      "start": "2025-07",
+      "end": "2025-08",
+      "status": "퇴사",
+      "description": "테스트용 경력입니다."
+    }
+  ],
+  "activity": [],
+  "award": []
+}
