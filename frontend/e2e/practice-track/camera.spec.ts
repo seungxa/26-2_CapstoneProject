@@ -45,23 +45,29 @@ test("camera analysis measures during the answer, shows numbers in review, and k
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
   const panel = page.locator(".camera-panel");
-  await expect(panel).toContainText("시선 추적이 아니에요");
-  await expect(panel).toContainText("얼굴을 찾지 못한 시간");
-  await expect(panel).not.toContainText("화면을 벗어난");
+  await expect(panel.getByRole("heading", { name: "Camera Feedback", exact: true })).toBeVisible();
+  await expect(panel).toContainText("Optional. Video stays on this device.");
+  // 측정 항목과 한계는 접힌 Details 안에 있다
+  const details = panel.locator("details");
+  await expect(details).not.toHaveAttribute("open");
+  await details.getByText("Details", { exact: true }).click();
+  await expect(details).toContainText("not eye tracking");
+  await expect(details).toContainText("face not found");
+  await expect(panel).not.toContainText(/off[- ]screen|looked away/i);
 
-  await panel.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.getByLabel("내 카메라 미리보기")).toBeVisible();
-  await expect(panel.getByRole("status")).toContainText("얼굴");
+  await panel.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.getByLabel("Camera preview")).toBeVisible();
+  await expect(panel.getByRole("status")).toContainText(/face/i);
   // 끄면 카메라를 바로 놓고, 다시 켤 수 있다
-  await panel.getByRole("button", { name: "카메라 끄기" }).click();
+  await panel.getByRole("button", { name: "Turn Off Camera" }).click();
   await expect.poll(() => liveCameraTracks(page)).toBe(0);
-  await panel.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.getByLabel("내 카메라 미리보기")).toBeVisible();
+  await panel.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.getByLabel("Camera preview")).toBeVisible();
 
-  await page.getByRole("checkbox", {name:"실시간 자세 힌트"}).uncheck();
+  await page.getByRole("checkbox", {name:"Show live hints"}).uncheck();
   await expect(panel.getByRole("status")).toHaveCount(0);
-  await page.getByRole("checkbox", {name:"실시간 자세 힌트"}).check();
-  const consent=page.getByRole("button",{name:"동의하고 시작"});
+  await page.getByRole("checkbox", {name:"Show live hints"}).check();
+  const consent=page.getByRole("button",{name:"Agree & Start"});
   if(await consent.count()) await consent.click();
   else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
   await page.waitForTimeout(4000);
@@ -108,8 +114,8 @@ test("camera permission denied keeps the interview working", async ({ page, requ
   await watchCamera(page, true);
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("카메라를 사용할 수 없어요");
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("Can't use the camera");
   await answerByTextAndFinish(page);
   await expect(cameraHeading(page)).toHaveCount(0);
 });
@@ -119,10 +125,10 @@ test("analysis model load failure releases the camera and keeps the interview wo
   await watchCamera(page);
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("영상 분석 모델을 불러오지 못해");
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("Couldn't load camera feedback");
   await expect.poll(() => liveCameraTracks(page)).toBe(0);
-  await expect(page.getByLabel("내 카메라 미리보기")).toHaveCount(0);
+  await expect(page.getByLabel("Camera preview")).toHaveCount(0);
   await answerByTextAndFinish(page);
   await expect(cameraHeading(page)).toHaveCount(0);
 });
@@ -134,14 +140,14 @@ test("edge-top: face partly outside is shown as detected, not as not-found", asy
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
   const panel = page.locator(".camera-panel");
-  await panel.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(panel.getByRole("status")).toHaveText("얼굴 위쪽이 화면 밖에 있어요");
+  await panel.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(panel.getByRole("status")).toHaveText("Part of your face is out of view at the top");
   // 미리보기는 분석 프레임 전체를 보여 주고(contain), 좌우 반전은 그대로다
-  const preview = page.getByLabel("내 카메라 미리보기");
+  const preview = page.getByLabel("Camera preview");
   expect(await preview.evaluate((el) => getComputedStyle(el).objectFit)).toBe("contain");
   expect(await preview.evaluate((el) => getComputedStyle(el).transform)).toMatch(/^matrix\(-1,/);
 
-  const consent=page.getByRole("button",{name:"동의하고 시작"});
+  const consent=page.getByRole("button",{name:"Agree & Start"});
   if(await consent.count()) await consent.click();
   else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
   await page.waitForTimeout(1500);
@@ -157,7 +163,7 @@ test("edge-top: face partly outside is shown as detected, not as not-found", asy
 
 test("typed answers never receive camera or voice reports", async ({page,request}) => {
  const session=await seed(request); await page.goto(`/practice/sessions/${session.id}/run`);
- await page.getByRole("button",{name:"동의하고 카메라 켜기"}).click();
+ await page.getByRole("button",{name:"Turn On Camera"}).click();
  await answerByTextAndFinish(page,1500);
  await expect(page.locator(".video-report")).toHaveCount(0);
  await expect(page.getByRole("heading",{name:"음성 전달 관찰"})).toHaveCount(0);
@@ -166,8 +172,8 @@ test("typed answers never receive camera or voice reports", async ({page,request
 test("failed recording uploads never publish camera or voice reports", async ({page,request})=>{
  const session=await seed(request);
  await page.goto(`/practice/sessions/${session.id}/run`);
- await page.getByRole("button",{name:"동의하고 카메라 켜기"}).click();
- const consent=page.getByRole("button",{name:"동의하고 시작"});
+ await page.getByRole("button",{name:"Turn On Camera"}).click();
+ const consent=page.getByRole("button",{name:"Agree & Start"});
  if(await consent.count()) await consent.click(); else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
  await page.waitForTimeout(1200);
  await page.route("**/practice/answers/*/audio",route=>route.fulfill({status:503,json:{detail:"테스트 저장 실패"}}));

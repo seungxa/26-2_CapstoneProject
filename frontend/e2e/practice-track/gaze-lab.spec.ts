@@ -12,8 +12,8 @@ async function startLab(page: Page, mode: string, opts: { skipRate?: boolean } =
   }, mode);
   await page.goto("/practice/dev/gaze-lab");
   await expect(page.getByRole("heading", { name: "시선 실험실(개발 전용)" })).toBeVisible();
-  await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.getByText("얼굴이 화면 안에 있어요")).toBeVisible();
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.getByText("Face in view")).toBeVisible();
   if (opts.skipRate) await page.getByLabel("주기 시험 건너뛰기").check();
   await page.getByRole("button", { name: "시험 시작" }).click();
 }

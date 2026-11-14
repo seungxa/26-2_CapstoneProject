@@ -82,7 +82,7 @@ test("recording upload failure retains audio for retry and blocks advancing", as
   const { session } = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
-  await page.getByRole("button", { name: "동의하고 시작" }).click();
+  await page.getByRole("button", { name: "Agree & Start" }).click();
   await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
   // A short capture interval supplies actual fake-device audio to MediaRecorder.
   await page.waitForTimeout(750);
@@ -122,7 +122,7 @@ test("permanent audio error can recover to text and unfinished last answer can r
   const { session } = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
-  await page.getByRole("button", { name: "동의하고 시작" }).click();
+  await page.getByRole("button", { name: "Agree & Start" }).click();
   await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
   await page.waitForTimeout(750);
   await page.route("**/practice/answers/*/audio", (route) => route.fulfill({ status: 413, contentType: "application/json", body: '{"detail":"녹음 파일이 너무 큽니다"}' }));
@@ -145,7 +145,7 @@ test("recorded answer can retry transcription and display returned Korean text",
   const aid = session.answers[0].id;
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
-  await page.getByRole("button", { name: "동의하고 시작" }).click();
+  await page.getByRole("button", { name: "Agree & Start" }).click();
   await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
   await page.waitForTimeout(750);
   await page.getByRole("button", { name: "답변 끝내기" }).click();

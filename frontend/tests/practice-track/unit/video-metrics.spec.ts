@@ -137,13 +137,14 @@ test("forehead beyond the top edge with core features inside is edge with oversh
 });
 
 test("edge label lists every crossed side, mirrored", () => {
-  expect(edgeLabel({ top: 0.02, bottom: 0, left: 0, right: 0 })).toBe("얼굴 위쪽이 화면 밖에 있어요");
+  expect(edgeLabel({ top: 0.02, bottom: 0, left: 0, right: 0 })).toBe("Part of your face is out of view at the top");
   // 미리보기는 좌우 반전이라 원본의 왼쪽(x<0)은 화면 오른쪽이다
-  expect(edgeLabel({ top: 0.02, bottom: 0, left: 0.05, right: 0 })).toBe("얼굴 위쪽·오른쪽이 화면 밖에 있어요");
-  expect(edgeLabel({ top: 0, bottom: 0.03, left: 0, right: 0.04 })).toBe("얼굴 아래쪽·왼쪽이 화면 밖에 있어요");
+  expect(edgeLabel({ top: 0.02, bottom: 0, left: 0.05, right: 0 })).toBe("Part of your face is out of view at the top and right");
+  expect(edgeLabel({ top: 0, bottom: 0.03, left: 0, right: 0.04 })).toBe("Part of your face is out of view at the bottom and left");
   // 여유(EDGE_MARGIN) 안쪽으로만 넘은 쪽은 빼고, 실제로 edge를 만든 쪽만 알린다
-  expect(edgeLabel({ top: 0.005, bottom: 0, left: 0, right: 0.02 })).toBe("얼굴 왼쪽이 화면 밖에 있어요");
-  expect(edgeLabel({ top: 0, bottom: 0, left: 0, right: 0 })).toBe("얼굴 일부가 화면 밖에 있어요");
+  expect(edgeLabel({ top: 0.005, bottom: 0, left: 0, right: 0.02 })).toBe("Part of your face is out of view at the left");
+  expect(edgeLabel({ top: 0, bottom: 0, left: 0, right: 0 })).toBe("Part of your face is out of view");
+  expect(edgeLabel({ top: 0.02, bottom: 0.02, left: 0.05, right: 0 })).toBe("Part of your face is out of view at the top, bottom, and right");
 });
 
 test("short landmark list: coreInside is false without throwing", () => {

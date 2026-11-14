@@ -12,8 +12,8 @@ async function startLab(page: Page, mode: string) {
   }, mode);
   await page.goto("/practice/dev/gaze-direction");
   await expect(page.getByRole("heading", { name: "시선 방향 실험실(개발 전용)" })).toBeVisible();
-  await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
-  await expect(page.getByText("얼굴이 화면 안에 있어요")).toBeVisible();
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.getByText("Face in view")).toBeVisible();
   await page.getByRole("button", { name: "시험 시작" }).click();
 }
 
@@ -77,7 +77,7 @@ test("turning the camera off during a trial stops the run with no results", asyn
   await startLab(page, "gaze");
   await reachTrials(page);
   // 시험 레이어가 화면을 덮으므로 사용자가 누를 수는 없다(카메라가 끊긴 경우와 같은 상태 변화만 만든다)
-  await page.getByRole("button", { name: "카메라 끄기" }).dispatchEvent("click");
+  await page.getByRole("button", { name: "Turn Off Camera" }).dispatchEvent("click");
   await expect(page.getByTestId("direction-prompt")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "시험 시작" })).toBeDisabled();
   await expect(page.getByRole("heading", { name: "시험 결과" })).toHaveCount(0);

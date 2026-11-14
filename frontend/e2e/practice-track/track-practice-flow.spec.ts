@@ -109,7 +109,7 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     expect(row.reached).toBe(previous.reached + 1);
     expect(row.failed).toBe(previous.failed + (status === "불합격" ? 1 : 0));
     expect(row.hold).toBe((previous.hold ?? 0) + (status === "보류" ? 1 : 0));
-    await page.getByRole("link", { name: "통계", exact: true }).click();
+    await page.getByRole("link", { name: "Stats", exact: true }).click();
     await expect(page.locator(".tile").filter({ hasText: "전체 지원" }).locator(".v")).toHaveText(String(stats.total));
     await expect(page.locator(".tile").filter({ hasText: "✕ 불합격" }).locator(".v")).toHaveText(String(stats.status["불합격"]));
     await page.getByRole("button", { name: "표로 보기", exact: true }).click();

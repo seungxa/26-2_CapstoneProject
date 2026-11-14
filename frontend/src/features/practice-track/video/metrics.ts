@@ -79,12 +79,16 @@ export function faceFeatures(points: Point[] | null | undefined): Omit<FaceSampl
   return { state: "in", yaw: (nose.x - (left.x + right.x) / 2) / width, pitch: (nose.y - top.y) / height };
 }
 
-/** 면접 중 안내 문구. 실제로 edge를 만든 쪽(EDGE_MARGIN보다 크게 넘은 쪽)만 위쪽·아래쪽·왼쪽·오른쪽 순서로 알린다.
+/** 면접 중 안내 문구. 실제로 edge를 만든 쪽(EDGE_MARGIN보다 크게 넘은 쪽)만 top·bottom·left·right 순서로 알린다.
  *  미리보기가 좌우 반전이라 원본의 왼쪽(x < 0)은 화면 오른쪽, 원본의 오른쪽(x > 1)은 화면 왼쪽이다 */
 export function edgeLabel(o: Overshoot): string {
-  const sides = ([[o.top, "위쪽"], [o.bottom, "아래쪽"], [o.right, "왼쪽"], [o.left, "오른쪽"]] as const)
+  const sides = ([[o.top, "top"], [o.bottom, "bottom"], [o.right, "left"], [o.left, "right"]] as const)
     .filter(([v]) => v > EDGE_MARGIN).map(([, name]) => name);
-  return sides.length ? `얼굴 ${sides.join("·")}이 화면 밖에 있어요` : "얼굴 일부가 화면 밖에 있어요";
+  const base = "Part of your face is out of view";
+  if (!sides.length) return base;
+  const last = sides[sides.length - 1];
+  const where = sides.length === 1 ? last : sides.length === 2 ? `${sides[0]} and ${last}` : `${sides.slice(0, -1).join(", ")}, and ${last}`;
+  return `${base} at the ${where}`;
 }
 
 

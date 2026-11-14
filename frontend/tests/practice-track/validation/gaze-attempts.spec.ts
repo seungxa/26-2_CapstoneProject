@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 async function start(page:Page){
  await page.addInitScript(()=>{localStorage.setItem('e2e-face-detector','gaze');localStorage.setItem('e2e-gaze-scale','0.1');});
- await page.goto('/practice/dev/gaze-lab');await page.getByRole('button',{name:'동의하고 카메라 켜기'}).click();await expect(page.getByText('얼굴이 화면 안에 있어요')).toBeVisible();await page.getByLabel('주기 시험 건너뛰기').check();await page.getByRole('button',{name:'시험 시작',exact:true}).click();await expect(page.getByTestId('lab-prompt')).toBeVisible();
+ await page.goto('/practice/dev/gaze-lab');await page.getByRole('button',{name:'Turn On Camera'}).click();await expect(page.getByText('Face in view')).toBeVisible();await page.getByLabel('주기 시험 건너뛰기').check();await page.getByRole('button',{name:'시험 시작',exact:true}).click();await expect(page.getByTestId('lab-prompt')).toBeVisible();
 }
 async function exported(page:Page){const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'익명 Gaze 집계 내보내기(JSON)'}).click();const file=await downloaded;return JSON.parse(readFileSync((await file.path())!,'utf8'));}
 test('invalid and aborted attempts are exportable with separate status, safe reasons and environment',async({page})=>{

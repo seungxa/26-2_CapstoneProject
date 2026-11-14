@@ -61,12 +61,12 @@ for (const latePermission of [false, true]) {
     const session = await seed(request);
     await page.goto(`/practice/sessions/${session.id}/run`);
     try {
-      await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
+      await page.getByRole("button", { name: "Turn On Camera" }).click();
       await expect.poll(detector.requested).toBe(true);
       if (latePermission) await expect.poll(async () => (await camera(page)).permissionPending).toBe(true);
       else await expect.poll(async () => (await camera(page)).live).toBe(1);
-      await page.getByRole("link", { name: "지원 관리", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "지원 관리", exact: true })).toBeVisible();
+      await page.locator(".practice-track").getByRole("link", { name: "Settings", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
       if (latePermission) await grantCamera(page);
       await expect.poll(async () => (await camera(page)).acquired).toBe(1);
       // 검출기 응답은 아직 붙잡고 있다. 이 시점에 트랙이 살아 있으면 화면을 떠나도 카메라가 켜져 있는 결함이다.
@@ -83,9 +83,9 @@ test("detector failure cancels pending camera setup and closes a later permissio
   await page.addInitScript(() => localStorage.setItem("e2e-face-detector", "fail"));
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("button", { name: "동의하고 카메라 켜기" }).click();
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
   await expect.poll(async () => (await camera(page)).permissionPending).toBe(true);
-  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("영상 분석 모델을 불러오지 못해", { timeout: 3000 });
+  await expect(page.locator(".camera-panel").getByRole("alert")).toContainText("Couldn't load camera feedback", { timeout: 3000 });
   await grantCamera(page);
   await expect.poll(async () => (await camera(page)).acquired).toBe(1);
   await expect.poll(async () => (await camera(page)).live).toBe(0);

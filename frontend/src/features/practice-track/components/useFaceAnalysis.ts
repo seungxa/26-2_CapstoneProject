@@ -80,7 +80,7 @@ export function useFaceAnalysis() {
       }
     })();
     if (!result) {
-      fail("영상 분석이 멈췄어요. 지금까지 잰 값은 남기고 카메라를 껐어요. 면접 연습은 그대로 이어 갈 수 있어요.");
+      fail("Camera feedback stopped, so the camera is off. Results so far are kept. Turn it on again to continue.");
       return;
     }
     const { t, points, detectMs, sample } = result;
@@ -134,7 +134,7 @@ export function useFaceAnalysis() {
         stream.current = s;
         return s;
       }, () => {
-        if (my === gen.current) fail("카메라를 사용할 수 없어요. 브라우저의 카메라 권한이나 다른 앱의 사용 여부를 확인해 주세요. 카메라 없이도 면접 연습은 그대로 할 수 있어요.");
+        if (my === gen.current) fail("Can't use the camera. Allow camera access in your browser, or close other apps that are using it.");
         return null;
       }),
       loadFaceDetector().then((d) => {
@@ -143,7 +143,7 @@ export function useFaceAnalysis() {
         return d;
       }, () => {
         // 다른 자원이 아직 권한 응답을 기다려도 실패를 즉시 알리고, 늦게 온 자원은 위 세대 검사로 정리한다.
-        if (my === gen.current) fail("영상 분석 모델을 불러오지 못해 카메라를 껐어요. 카메라 없이도 면접 연습은 그대로 할 수 있어요.");
+        if (my === gen.current) fail("Couldn't load camera feedback, so the camera is off. Check your connection and try again.");
         return null;
       }),
     ]);
@@ -160,7 +160,7 @@ export function useFaceAnalysis() {
       po.observe({ type: "longtask", buffered: false });
       longTasks.current = po;
     } catch { /* 지원하지 않는 브라우저 */ }
-    s.getVideoTracks().forEach((t) => { t.onended = () => fail("카메라 연결이 끊겼어요. 지금까지 잰 값은 남겨 두었어요."); });
+    s.getVideoTracks().forEach((t) => { t.onended = () => fail("Camera disconnected. Results so far are kept. Reconnect it and turn it on again."); });
     if (video.current) { video.current.srcObject = s; video.current.play().catch(() => {}); }
     schedule();
     setStatus("on");

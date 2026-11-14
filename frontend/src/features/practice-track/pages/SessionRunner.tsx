@@ -244,7 +244,7 @@ export default function SessionRunner() {
           <label className="check-label"><input type="radio" name="input-mode" checked={inputMode === "text"} onChange={() => setInputMode("text")} />글로 답변</label>
         </div>
         {inputMode === "audio" && consent === "needed" ? <>
-          {consentPanel(null, "동의하고 시작", () => void beginQuestion())}
+          {consentPanel(null, "Agree & Start", () => void beginQuestion())}
           <div className="row"><button disabled={busy} onClick={() => next(false, false)}>건너뛰기</button></div>
         </> : <div className="row"><button className="primary" disabled={startingUi} onClick={beginQuestion}>답변 시작</button><button disabled={busy} onClick={() => next(false, false)}>건너뛰기</button></div>}
       </>}
@@ -264,9 +264,9 @@ export default function SessionRunner() {
         </div>}
         {answer.recorded_at && answer.audio_deleted_at && <p className="small muted">
           {answer.transcript?.trim() ? "원본 녹음은 지웠어요. 전사문만 남겨요." : "원본 녹음은 지웠어요. 답변을 직접 입력해 주세요."}</p>}
-        {consentFor === "upload" && uploadFailed && consentPanel("녹음을 저장하려면 먼저 동의가 필요해요. 동의하면 방금 녹음을 저장해요.", "동의하고 녹음 저장", () => void finishAnswer())}
+        {consentFor === "upload" && uploadFailed && consentPanel("Agree first to save the answer you just recorded.", "Agree & Save Recording", () => void finishAnswer())}
         {/* 다시 전사할 원본이 있을 때만 묻는다(글 답변이거나 원본을 지웠으면 동의해도 할 일이 없다) */}
-        {consentFor === "transcribe" && answer.audio_available && consentPanel("녹음을 다시 전사하려면 먼저 녹음 동의가 필요해요.", "동의하고 다시 전사", () => void retranscribe())}
+        {consentFor === "transcribe" && answer.audio_available && consentPanel("Agree first to transcribe this answer again.", "Agree & Retry Transcription", () => void retranscribe())}
         <label>답변 확인 · 전사문을 고칠 수 있어요<textarea disabled={busy} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="녹음의 전사문이 없으면 답변을 직접 입력해 주세요." /></label>
         <p className="small muted">확인한 답변을 저장하고 다음 단계로 진행해요.</p>
         {uploadFailed && consentFor !== "upload" && <button onClick={finishAnswer}>녹음 저장 다시 시도</button>}

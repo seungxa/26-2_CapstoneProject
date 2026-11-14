@@ -40,8 +40,8 @@ test("permission granted after leaving the interview releases the microphone at 
   await page.goto(`/practice/sessions/${session.id}/run`);
   await page.getByRole("button", { name: "답변 시작", exact: true }).click();
   await expect.poll(async () => (await mic(page)).calls).toBe(1);
-  await page.getByRole("link", { name: "지원 관리" }).click(); // 권한 응답 전에 면접 화면을 떠난다
-  await expect(page.getByRole("heading", { name: "지원 관리" })).toBeVisible();
+  await page.locator(".practice-track").getByRole("link", { name: "Settings", exact: true }).click(); // 권한 응답 전에 면접 화면을 떠난다
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await grant(page);
   await expect.poll(async () => (await mic(page)).streams).toBe(1);
   await expect.poll(async () => (await mic(page)).live).toBe(0);

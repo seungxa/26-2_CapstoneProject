@@ -161,8 +161,8 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
         <ConsentPanel
           retentionDays={needConsent.retention_days}
           initialKeepAudio={needConsent.keep_audio}
-          notice="녹음을 다시 전사하려면 먼저 녹음 동의가 필요해요."
-          buttonLabel="동의하고 다시 전사"
+          notice="Agree first to transcribe this answer again."
+          buttonLabel="Agree & Retry Transcription"
           onConsented={retranscribe}
         />
       )}

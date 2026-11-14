@@ -6,7 +6,7 @@ test('team header and protected deep links host the practice module without a se
  await expect(page.locator('.feature-nav').getByRole('link',{name:'Practice',exact:true})).toBeVisible();
  await expect(page.locator('.practice-track')).toHaveCount(1);
  await expect(page.locator('main')).toHaveCount(1);
- await page.getByRole('link',{name:'지원 관리',exact:true}).click();
+ await page.locator('.feature-nav').getByRole('link',{name:'Track',exact:true}).click();
  await expect(page).toHaveURL(/\/track$/);await expect(page.getByRole('heading',{name:'지원 관리',exact:true})).toBeVisible();
  await expect(page.locator('.site-header')).toHaveCount(1);
 });
@@ -25,4 +25,23 @@ test('dashboard stays independent and feature styles do not change the existing 
  expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())).toBe('');
  expect(await page.locator('.site-header').evaluate(element=>getComputedStyle(element).backgroundColor)).toBe(header);
  await expect(page.locator('.practice-track')).toHaveCount(0);
+});
+
+
+test('practice tab shows only practice links',async({page})=>{
+ const feature=page.locator('.practice-track');
+ const menu=feature.getByRole('navigation');
+ await page.goto('/practice');
+ await expect(menu.getByRole('link')).toHaveText(['Start','History','Settings']);
+ await expect(feature).toHaveAttribute('lang','en');
+ // Wait for the health check so a status line would already be on screen if it still existed.
+ await page.waitForLoadState('networkidle');
+ await expect(feature.locator(':scope > *')).toHaveCount(2); // the menu and the page, nothing above the page
+ await expect(feature).not.toContainText(/음성 전사:|Transcription is/);
+ await page.goto('/track');
+ await expect(menu.getByRole('link')).toHaveText(['Applications','Stats']);
+ await page.waitForLoadState('networkidle');
+ await expect(feature.locator(':scope > *')).toHaveCount(2);
+ await menu.getByRole('link',{name:'Stats',exact:true}).click();
+ await expect(page).toHaveURL(/\/track\/stats$/);
 });
