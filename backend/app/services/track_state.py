@@ -42,9 +42,9 @@ def project(app: Application) -> None:
 def use_events(app: Application, baseline_stage: str | None, baseline_status: str | None) -> None:
     state = control(app)
     if state.baseline_stage is None and (baseline_stage is None or baseline_status is None):
-        raise ValueError("이전 기록의 시작 단계와 상태를 선택해 주세요")
+        raise ValueError("Choose the starting stage and status for earlier records.")
     if (baseline_stage is None) != (baseline_status is None):
-        raise ValueError("시작 단계와 상태는 함께 선택해 주세요")
+        raise ValueError("Choose the starting stage and status together.")
     if baseline_stage is not None:
         state.baseline_stage, state.baseline_status = baseline_stage, baseline_status
     state.override_origin = state.override_stage = state.override_status = None

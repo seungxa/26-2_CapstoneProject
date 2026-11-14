@@ -127,13 +127,13 @@ test("recorded mock session: improvement points in rule order, folded after five
   const points = page.getByTestId("insight-points");
   const shown = points.locator(":scope > ol > li");
   await expect(shown.locator("strong")).toHaveText([
-    "구체성 보완", "제한 시간을 다 썼어요", "제한 시간보다 많이 짧았어요", "평소보다 빠르게 말했어요", "평소보다 느리게 말했어요",
+    "Specificity 보완", "제한 시간을 다 썼어요", "제한 시간보다 많이 짧았어요", "평소보다 빠르게 말했어요", "평소보다 느리게 말했어요",
   ]);
   const coaching = shown.nth(0);
   await expect(coaching).toContainText("코칭 결과");
   await expect(coaching).toContainText("(외 3개 답변)");
   await expect(coaching.locator("blockquote")).toHaveCount(2); // 인용은 두 답변까지
-  await expect(coaching).toContainText("개선 전후의 측정 지표와 비교 조건을 설명해 주세요."); // 보고서의 다음 행동
+  await expect(coaching).toContainText("Explain the measures and comparison conditions from before and after the improvement."); // 보고서의 다음 행동
   await expect(shown.nth(1)).toContainText("Q1 60초 / 제한 60초");
   await expect(shown.nth(2)).toContainText("Q2 18초(30%) / 제한 60초");
   await expect(shown.nth(3)).toContainText("Q4 분당 188음절 · 이 세션 평균 130음절");

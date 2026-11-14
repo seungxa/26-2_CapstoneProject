@@ -277,7 +277,7 @@ def test_redrill_also_takes_low_self_ratings_in_order(client):
     assert drill["title"] == "보완 연습 · 금요일 연습" and drill["mode"] == "free"
     targets = drill["context_snapshot"]["drill_targets"]
     assert [(t["answer_id"], t["focus"]) for t in targets] == [(a1, ["자기평가 2점"]), (a2, ["구체성"]), (a4, ["자기평가 1점"])]
-    assert "자기평가 2점" in targets[0]["next_action"]  # 코칭이 없으면 자기평가로 안내한다
+    assert "rated this answer 2" in targets[0]["next_action"]  # 코칭이 없으면 자기평가로 안내한다
     assert targets[1]["next_action"] == "결과를 확인한 방법을 한 문장으로 덧붙이세요."  # 코칭의 다음 연습
     assert targets[2]["next_action"] == "결과를 확인한 방법을 한 문장으로 덧붙이세요."
 
@@ -298,7 +298,7 @@ def test_basic_coaching_reasons_are_not_labeled_ai_and_redrill_caps_at_20(client
     for a in s["answers"][1:]:
         client.patch(f"/practice/answers/{a['id']}", json={"self_rating": 1}, headers=h)
     got = client.get(f"/practice/sessions/{s['id']}", headers=h).json()
-    assert got["redrill"][0]["reasons"] == ["구체성 보완"]  # 기본 점검은 'AI ·'를 붙이지 않는다
+    assert got["redrill"][0]["reasons"] == ["Specificity 보완"]  # 기본 점검은 'AI ·'를 붙이지 않는다
     assert len(got["redrill"]) == 20 and got["redrill"][-1]["order_no"] == 20
     drill = client.post(f"/practice/sessions/{s['id']}/redrill", headers=h).json()
     assert len(drill["answers"]) == 20
@@ -311,7 +311,7 @@ def test_redrill_nothing_qualifies_and_other_user(client):
     aid = s["answers"][0]["id"]
     client.patch(f"/practice/answers/{aid}", json={"self_rating": 3}, headers=h)
     r = client.post(f"/practice/sessions/{s['id']}/redrill", headers=h)
-    assert r.status_code == 422 and "보완" in r.json()["detail"] and "자기평가" in r.json()["detail"]
+    assert r.status_code == 422 and "need work" in r.json()["detail"] and "self-rating" in r.json()["detail"]
     assert client.get(f"/practice/sessions/{s['id']}", headers=h).json()["redrill"] == []
     assert client.post(f"/practice/sessions/{s['id']}/redrill", headers=other).status_code == 404
     assert client.post(f"/practice/sessions/{s['id']}/debrief", headers=other).status_code == 404
@@ -322,15 +322,15 @@ def test_redrill_nothing_qualifies_and_other_user(client):
 def test_rubric_endpoint_serves_coaching_criteria_with_anchors(client):
     r = client.get("/practice/rubric", headers={"X-User-Id": "user-rubric"}).json()
     assert [c["key"] for c in r["criteria"]] == ["specificity", "relevance", "consistency"]
-    assert [c["label"] for c in r["criteria"]] == ["구체성", "질문 적합성", "제출본 연결"]
+    assert [c["label"] for c in r["criteria"]] == ["Specificity", "Relevance", "Match With Submitted Essay"]
     assert {c["key"]: c["label"] for c in r["criteria"]} == coaching.LABELS
     for c in r["criteria"]:
         assert c["checks"] and set(c["anchors"]) == {"충분", "보완"} and all(c["anchors"].values())
     star = r["criteria"][0]["star"]
-    assert star["when"] == "과거 경험을 묻는 질문"
-    assert [a.split(":")[0] for a in star["anchors"]] == ["상황·과제", "본인 몫과 판단 근거", "결과와 배운 점"]
+    assert star["when"] == "Questions about past experience"
+    assert [a.split(":")[0] for a in star["anchors"]] == ["Situation and task", "Own role and reasoning", "Result and lesson"]
     assert set(r["statuses"]) == {"충분", "보완", "판단유보"}
-    assert "τ=.19–.44" in r["note"] and "정답 여부" in r["note"]
+    assert "Rule-based" in r["note"] and "AI" not in r["note"] and "LLM" not in r["note"]
     assert r["version"] == coaching.RUBRIC_VERSION
 
 

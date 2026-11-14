@@ -46,9 +46,9 @@ MAX_COMPETENCIES = 3
 def validate_keys(question_types=(), competency_keys=()) -> None:
     if (any(key not in TYPE_BY_KEY for key in question_types)
             or any(key not in COMPETENCY_BY_KEY for key in competency_keys)):
-        raise ValueError("알 수 없는 질문 유형 또는 역량입니다")
+        raise ValueError("Unknown question type or skill. Pick one from the list.")
     if len(set(question_types)) != len(question_types) or len(set(competency_keys)) != len(competency_keys):
-        raise ValueError("중복된 분류 키입니다")
+        raise ValueError("Duplicate classification key. Remove the repeated entry.")
 
 
 def classification_hash(value) -> str:
@@ -84,7 +84,7 @@ def assign(question, question_type: str | None, competency_keys: list[str], sour
 
     validate_keys([question_type] if question_type else [], competency_keys)
     if len(competency_keys) > MAX_COMPETENCIES or source not in TAGGING_SOURCES:
-        raise ValueError("역량은 최대 3개이며 분류 출처는 서버에서 지정합니다")
+        raise ValueError("Choose at most 3 skills. The classification source is set automatically.")
     question.question_type = question_type
     question.taxonomy_version = TAXONOMY_VERSION
     question.tagging_source = source

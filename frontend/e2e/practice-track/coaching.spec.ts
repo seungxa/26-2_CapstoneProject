@@ -43,7 +43,7 @@ test("submitted source → text answer → follow-up → evidence review → foc
   await page.getByLabel("내 답변", { exact: true }).fill("프로젝트에서 제가 개선했습니다.");
   await page.getByRole("button", { name: "답변 끝내기" }).click();
   await page.getByRole("button", { name: "꼬리질문 받기" }).click();
-  await expect(page.locator(".followup-reason")).toContainText("수치");
+  await expect(page.locator(".followup-reason")).toContainText("numbers");
   await expect(page.locator(".runner-q")).toContainText("측정");
   await page.getByRole("button", { name: "답변 시작", exact: true }).click();
   await page.getByLabel("내 답변", { exact: true }).fill("동일한 요청 1000개를 보내 제가 응답 시간을 측정했습니다. 평균 500ms에서 300ms로 감소했습니다.");

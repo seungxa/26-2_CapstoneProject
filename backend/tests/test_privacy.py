@@ -17,7 +17,7 @@ from app.retention import purge_expired_audio, run_purge
 from app.stt import STTError
 
 AUDIO = {"file": ("a.webm", b"\x1aE\xdf\xa3fakewebm", "audio/webm")}
-DOWN = STTError("provider_error", "음성 인식 중 오류가 났어요. 다시 시도해 주세요")  # 전사 실패(원본을 남긴다)
+DOWN = STTError("provider_error", "Speech recognition failed. Try again.")  # 전사 실패(원본을 남긴다)
 
 
 def _stt(monkeypatch, on: bool) -> None:
@@ -51,7 +51,7 @@ def test_consent_required_then_upload_keeps_audio_when_stt_unavailable(client):
     s = _session(client, h)
     aid = s["answers"][0]["id"]
     r = _upload(client, h, aid)
-    assert r.status_code == 403 and r.json()["detail"] == "녹음 전에 동의가 필요합니다"
+    assert r.status_code == 403 and r.json()["detail"] == "Consent is required before recording. Agree in Settings or in the recording prompt."
 
     st = client.put("/practice/settings", json={"consent": True}, headers=h).json()
     assert st["consented_at"] and st["keep_audio"] is False
@@ -76,10 +76,10 @@ def test_text_answer_needs_no_consent_but_audio_does(client):
     assert client.post(f"/practice/answers/{aid}/coach", headers=h).json()["coaching_report"]["method"] == "basic"
     assert client.post(f"/practice/sessions/{s['id']}/finish", headers=h).status_code == 200
     r = _upload(client, h, aid)
-    assert r.status_code == 403 and r.json()["detail"] == "녹음 전에 동의가 필요합니다"
+    assert r.status_code == 403 and r.json()["detail"] == "Consent is required before recording. Agree in Settings or in the recording prompt."
     # 다시 전사할 녹음이 없으면 동의를 묻지 않고 그렇게 알린다(동의해도 할 수 있는 일이 없다)
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-    assert r.status_code == 404 and r.json()["detail"] == "녹음이 없습니다"
+    assert r.status_code == 404 and r.json()["detail"] == "No recording found. Record an answer first."
     assert client.get("/practice/settings", headers=h).json()["consented_at"] is None
     me = next(x for x in client.get("/practice/sessions", headers=h).json() if x["id"] == s["id"])
     assert me["recorded_count"] == 0  # 글 답변은 녹음으로 세지 않는다
@@ -97,7 +97,7 @@ def test_successful_transcription_deletes_raw_audio(client, fake_stt, consent):
     assert a["audio_deleted_at"] and a["recorded_at"] and a["duration_sec"] == 30
     assert not list(settings.local_recordings_dir.glob(f"{h['X-User-Id']}/**/*.webm"))
     r = client.get(f"/practice/answers/{aid}/audio", headers=h)
-    assert r.status_code == 404 and r.json()["detail"] == "원본 녹음은 삭제됐어요"
+    assert r.status_code == 404 and r.json()["detail"] == "The original recording was deleted."
 
     client.post(f"/practice/sessions/{s['id']}/finish", headers=h)
     me = next(x for x in client.get("/practice/sessions", headers=h).json() if x["id"] == s["id"])
@@ -129,7 +129,7 @@ def test_failed_transcription_keeps_audio_then_retry_deletes(client, fake_stt, c
     assert a["stt_status"] == "done" and a["transcript"] == "다시 전사한 답변"
     assert a["audio_available"] is False and a["audio_deleted_at"]
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-    assert r.status_code == 404 and r.json()["detail"] == "원본 녹음은 삭제됐어요"
+    assert r.status_code == 404 and r.json()["detail"] == "The original recording was deleted."
 
 
 def test_purge_with_future_now_deletes_expired_audio_and_file(client, consent, isolated_db):
@@ -220,7 +220,7 @@ def test_delete_answer_audio_and_all_recordings(client, consent):
     a = client.delete(f"/practice/answers/{a1}/audio", headers=h).json()
     assert a["audio_available"] is False and a["audio_deleted_at"] and a["transcript"] == "직접 입력한 답변"
     assert not f1.exists()
-    assert client.get(f"/practice/answers/{a1}/audio", headers=h).json()["detail"] == "원본 녹음은 삭제됐어요"
+    assert client.get(f"/practice/answers/{a1}/audio", headers=h).json()["detail"] == "The original recording was deleted."
 
     assert client.delete("/practice/recordings", headers=other).json() == {"deleted": 0, "failed": 0, "unchecked": False}
     assert client.delete("/practice/recordings", headers=h).json() == {"deleted": 1, "failed": 0, "unchecked": False}
@@ -406,7 +406,7 @@ def test_retry_transcribe_requires_consent(client, monkeypatch, consent, fake_st
     _stt(monkeypatch, on=True)
     fake_stt.reply = "전사하면 안 됨"
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-    assert r.status_code == 403 and r.json()["detail"] == "녹음 전에 동의가 필요합니다" and sent == []
+    assert r.status_code == 403 and r.json()["detail"] == "Consent is required before recording. Agree in Settings or in the recording prompt." and sent == []
 
     # 동의 행이 아예 없는 예전 사용자의 녹음도 마찬가지
     with SessionLocal() as db:
@@ -628,9 +628,9 @@ def test_storage_errors_are_502_not_missing_recordings(client, monkeypatch, cons
 
     monkeypatch.setattr(storage, "load", broken)
     r = client.get(f"/practice/answers/{aid}/audio", headers=h)
-    assert r.status_code == 502 and "저장소" in r.json()["detail"]
+    assert r.status_code == 502 and "recording storage" in r.json()["detail"]
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-    assert r.status_code == 502 and "저장소" in r.json()["detail"]
+    assert r.status_code == 502 and "recording storage" in r.json()["detail"]
 
 
 # ───────── 업로드·다시 전사 중의 동의 철회와 삭제 ─────────
@@ -676,7 +676,7 @@ def test_withdrawal_during_upload_deletes_that_recording(client, monkeypatch, co
     r, st = _while_transcribing(monkeypatch, fake_stt, stt, lambda: _upload(client, h, aid),
                                 lambda: client.put("/practice/settings", json={"consent": False}, headers=h).json())
     assert st["consented_at"] is None
-    assert r.status_code == 403 and r.json()["detail"] == "녹음 전에 동의가 필요합니다"
+    assert r.status_code == 403 and r.json()["detail"] == "Consent is required before recording. Agree in Settings or in the recording prompt."
     assert _user_files(h["X-User-Id"]) == []
     a = client.get(f"/practice/sessions/{s['id']}", headers=h).json()["answers"][0]
     assert a["audio_available"] is False
@@ -698,7 +698,7 @@ def test_withdrawal_during_retry_transcribe_keeps_only_the_transcript(client, mo
     r, st = _while_transcribing(monkeypatch, fake_stt, "다시 전사한 답변", lambda: client.post(f"/practice/answers/{aid}/transcribe", headers=h),
                                 lambda: client.put("/practice/settings", json={"consent": False}, headers=h).json())
     assert st["deleted"] == 1
-    assert r.status_code == 403 and r.json()["detail"] == "녹음 전에 동의가 필요합니다"
+    assert r.status_code == 403 and r.json()["detail"] == "Consent is required before recording. Agree in Settings or in the recording prompt."
     a = client.get(f"/practice/sessions/{s['id']}", headers=h).json()["answers"][0]
     assert (a["transcript"], a["stt_status"], a["audio_available"]) == ("다시 전사한 답변", "done", False)
     assert a["audio_deleted_at"] and _user_files(h["X-User-Id"]) == []
@@ -715,7 +715,7 @@ def test_deleting_the_session_or_question_during_upload_leaves_no_file(client, m
     r, deleted = _while_transcribing(monkeypatch, fake_stt, "전사된 답변", lambda: _upload(client, h, aid),
                                      lambda: client.delete(url, headers=h).status_code)
     assert deleted == 204
-    assert r.status_code == 404 and r.json()["detail"] == "답변을 찾을 수 없습니다"
+    assert r.status_code == 404 and r.json()["detail"] == "Answer not found. Reload the session and try again."
     assert _user_files(h["X-User-Id"]) == []
     assert client.delete("/practice/recordings", headers=h).json() == {"deleted": 0, "failed": 0, "unchecked": False}
 
@@ -731,7 +731,7 @@ def test_deleting_the_session_during_retry_transcribe_returns_404(client, monkey
     r, deleted = _while_transcribing(monkeypatch, fake_stt, "다시 전사한 답변", lambda: client.post(f"/practice/answers/{aid}/transcribe", headers=h),
                                      lambda: client.delete(f"/practice/sessions/{s['id']}", headers=h).status_code)
     assert deleted == 204
-    assert r.status_code == 404 and r.json()["detail"] == "답변을 찾을 수 없습니다"
+    assert r.status_code == 404 and r.json()["detail"] == "Answer not found. Reload the session and try again."
     assert _user_files(h["X-User-Id"]) == []
 
 
@@ -751,13 +751,13 @@ def test_delete_all_during_upload_counts_and_deletes_that_recording(client, monk
     assert a["audio_available"] is False and a["audio_deleted_at"] and a["recorded_at"]
     assert _user_files(h["X-User-Id"]) == []
     assert client.get(f"/practice/sessions/{s['id']}", headers=h).json()["answers"][0]["audio_available"] is False
-    assert client.get(f"/practice/answers/{aid}/audio", headers=h).json()["detail"] == "원본 녹음은 삭제됐어요"
+    assert client.get(f"/practice/answers/{aid}/audio", headers=h).json()["detail"] == "The original recording was deleted."
     if isinstance(stt, str):
         assert (a["transcript"], a["stt_status"]) == (stt, "done")
     else:
         assert (a["transcript"], a["stt_status"]) == (None, "failed")
         retry = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-        assert retry.status_code == 404 and retry.json()["detail"] == "원본 녹음은 삭제됐어요"
+        assert retry.status_code == 404 and retry.json()["detail"] == "The original recording was deleted."
 
 
 def test_upload_started_after_delete_all_keeps_its_recording(client, monkeypatch, consent, fake_stt):
@@ -864,7 +864,7 @@ def test_deleting_the_recording_during_retry_transcribe_keeps_the_transcript(cli
         assert r.status_code == 200 and r.json()["transcript"] == stt
         assert (a["transcript"], a["stt_status"]) == (stt, "done")
     else:  # 전사문도 없으면 지웠다고 알린다
-        assert r.status_code == 404 and r.json()["detail"] == "원본 녹음은 삭제됐어요"
+        assert r.status_code == 404 and r.json()["detail"] == "The original recording was deleted."
         assert (a["transcript"], a["stt_status"]) == (None, "unavailable")
 
 
@@ -959,10 +959,10 @@ def test_retry_after_the_recording_is_gone_says_so_before_asking_consent(client,
     sent = fake_stt.calls
     fake_stt.reply = "전사하면 안 됨"
     r = client.post(f"/practice/answers/{a1}/transcribe", headers=h)
-    assert r.status_code == 404 and r.json()["detail"] == "원본 녹음은 삭제됐어요"  # 전사가 꺼져 있어도 삭제를 먼저 알린다
+    assert r.status_code == 404 and r.json()["detail"] == "The original recording was deleted."  # 전사가 꺼져 있어도 삭제를 먼저 알린다
     _stt(monkeypatch, on=True)
     r = client.post(f"/practice/answers/{a1}/transcribe", headers=h)
-    assert r.status_code == 404 and r.json()["detail"] == "원본 녹음은 삭제됐어요" and sent == []
+    assert r.status_code == 404 and r.json()["detail"] == "The original recording was deleted." and sent == []
     assert client.get("/practice/settings", headers=h).json()["consented_at"] is None
 
     # 원본이 남아 있어도 전사가 꺼져 있으면 동의를 묻지 않는다(동의해도 전사할 수 없다)

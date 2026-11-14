@@ -40,7 +40,7 @@ def _own_app(db: Session, user_id: str, app_id: str) -> Application:
                  selectinload(Application.essay_items).selectinload(EssayItem.versions))
     )
     if not app:
-        raise HTTPException(404, "지원 건을 찾을 수 없습니다")
+        raise HTTPException(404, "Application not found. Check that it still exists.")
     return app
 
 
@@ -49,7 +49,7 @@ def _lock_app(db: Session, user_id: str, app_id: str) -> Application:
     if not valid_id(app_id) or not db.execute(update(Application).where(
         Application.id == app_id, Application.user_id == user_id).values(updated_at=Application.updated_at),
         execution_options={"synchronize_session": False}).rowcount:
-        raise HTTPException(404, "지원 건을 찾을 수 없습니다")
+        raise HTTPException(404, "Application not found. Check that it still exists.")
     return _own_app(db, user_id, app_id)
 
 
@@ -67,7 +67,7 @@ def _own_item(db: Session, user_id: str, item_id: str) -> EssayItem:
         .options(selectinload(EssayItem.versions))
     )
     if not item:
-        raise HTTPException(404, "자소서 문항을 찾을 수 없습니다")
+        raise HTTPException(404, "Essay question not found. Check that it still exists.")
     return item
 
 
@@ -167,7 +167,7 @@ def delete_event(event_id: str, user_id: str = Depends(current_user_id), db: Ses
     ev = valid_id(event_id) and db.scalar(select(StageEvent).join(Application)
                                           .where(StageEvent.id == event_id, Application.user_id == user_id))
     if not ev:
-        raise HTTPException(404, "기록을 찾을 수 없습니다")
+        raise HTTPException(404, "Record not found. Reload the application and try again.")
     app = _lock_app(db, user_id, ev.application_id)
     db.delete(ev)
     db.flush()
@@ -181,7 +181,7 @@ def edit_event(event_id: str, body: StageEventPatch, user_id: str = Depends(curr
     ev = valid_id(event_id) and db.scalar(select(StageEvent).join(Application).where(
         StageEvent.id == event_id, Application.user_id == user_id))
     if not ev:
-        raise HTTPException(404, "기록을 찾을 수 없습니다")
+        raise HTTPException(404, "Record not found. Reload the application and try again.")
     app = _lock_app(db, user_id, ev.application_id)
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(ev, k, v)
@@ -241,7 +241,7 @@ def restore_version(version_id: str, user_id: str = Depends(current_user_id), db
     v = valid_id(version_id) and db.scalar(select(AnswerVersion).join(EssayItem).join(Application)
                                            .where(AnswerVersion.id == version_id, Application.user_id == user_id))
     if not v:
-        raise HTTPException(404, "버전을 찾을 수 없습니다")
+        raise HTTPException(404, "Version not found. Reload the essay and try again.")
     item = _lock_item(db, user_id, v.essay_item_id)
     track_versions.add_version(db, item, v.content, "web", False, force=True)
     db.commit()
@@ -253,7 +253,7 @@ def submit_version(version_id: str, user_id: str = Depends(current_user_id), db:
     v = valid_id(version_id) and db.scalar(select(AnswerVersion).join(EssayItem).join(Application).where(
         AnswerVersion.id == version_id, Application.user_id == user_id))
     if not v:
-        raise HTTPException(404, "버전을 찾을 수 없습니다")
+        raise HTTPException(404, "Version not found. Reload the essay and try again.")
     item = _lock_item(db, user_id, v.essay_item_id)
     track_versions.confirm_submission(db, item, v, "web")
     db.commit()

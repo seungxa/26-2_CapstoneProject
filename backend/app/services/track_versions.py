@@ -20,7 +20,7 @@ def confirm_submission(db: Session, item: EssayItem, version: AnswerVersion, sou
     _lock_latest(db, item)
     db.refresh(item, ["submissions"])
     if version.essay_item_id != item.id:
-        raise ValueError("문항에 속하지 않는 버전입니다")
+        raise ValueError("This version does not belong to the essay question.")
     version.is_submitted = True
     if item.submissions and item.submissions[-1].version_id == version.id:
         return

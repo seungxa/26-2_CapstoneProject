@@ -57,7 +57,7 @@ class FakeStt:
         if isinstance(reply, BaseException):
             raise reply
         if not reply.strip():
-            raise stt.STTError("no_speech", "말소리를 인식하지 못했어요")
+            raise stt.STTError("no_speech", "No speech recognized. Record again and speak closer to the microphone.")
         return reply
 
 

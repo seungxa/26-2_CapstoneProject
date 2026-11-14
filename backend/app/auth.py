@@ -48,17 +48,17 @@ def current_user_id(
     if settings.auth_disabled:
         # Supabase(Postgres)의 user_id는 uuid 컬럼이다. 로컬 SQLite는 아무 문자열이나 쓸 수 있다
         if x_user_id and not settings.database_url.startswith("sqlite") and not valid_id(x_user_id):
-            raise HTTPException(400, "X-User-Id 헤더는 UUID여야 해요")
+            raise HTTPException(400, "The X-User-Id header must be a UUID. Send a valid UUID.")
         return x_user_id or DEV_USER_ID
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(401, "로그인이 필요합니다")
+        raise HTTPException(401, "Log in to continue.")
     token = authorization.split(" ", 1)[1]
     try:
         payload = _decode_token(token)
     except jwt.PyJWTError as e:
-        raise HTTPException(401, "유효하지 않은 토큰입니다") from e
+        raise HTTPException(401, "Your login token is not valid. Log in again.") from e
     # Supabase 사용자 id(uuid)만 받는다. 없거나 형식이 다르면 user_id 컬럼(uuid)에 쓸 수 없다
     sub = payload.get("sub")
     if not isinstance(sub, str) or not valid_id(sub):
-        raise HTTPException(401, "유효하지 않은 토큰: 사용자 id(sub)가 없어요")
+        raise HTTPException(401, "Your login token has no user ID. Log in again.")
     return sub

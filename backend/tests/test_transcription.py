@@ -34,9 +34,9 @@ def test_korean_transcript_goes_through_the_multipart_upload(client, fake_stt):
 
 @pytest.mark.parametrize("reply", [
     "", "   ",
-    stt.STTError("no_speech", "말소리를 인식하지 못했어요"),
-    stt.STTError("invalid_audio", "녹음 파일을 읽지 못했어요"),
-    stt.STTError("provider_error", "음성 인식 중 오류가 났어요. 다시 시도해 주세요"),
+    stt.STTError("no_speech", "No speech recognized. Record again and speak closer to the microphone."),
+    stt.STTError("invalid_audio", "The recording file could not be read. Record again."),
+    stt.STTError("provider_error", "Speech recognition failed. Try again."),
 ])
 def test_empty_or_invalid_transcription_keeps_audio_and_offers_retry(client, fake_stt, reply):
     fake_stt.reply = reply
@@ -50,7 +50,7 @@ def test_empty_or_invalid_transcription_keeps_audio_and_offers_retry(client, fak
 
 
 def test_mp4_retry_preserves_format_and_recognizes_the_stored_recording(client, fake_stt):
-    fake_stt.reply = stt.STTError("busy", "다른 녹음을 전사하느라 바빠요. 잠시 뒤 다시 시도해 주세요")
+    fake_stt.reply = stt.STTError("busy", "Another recording is being transcribed. Try again in a moment.")
     h, aid = session_answer(client, keep_audio=True)  # 다시 전사한 뒤에도 저장된 원본 형식을 확인하려고 보관
     first = client.post(f"/practice/answers/{aid}/audio", headers=h,
                         files={"file": ("answer.m4a", b"simulated-mp4", "audio/mp4")})

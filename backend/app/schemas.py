@@ -282,7 +282,7 @@ class StageEventPatch(BaseModel):
     @model_validator(mode="after")
     def required_fields(self):
         if any(k in self.model_fields_set and getattr(self, k) is None for k in ("stage", "result", "event_date")):
-            raise ValueError("단계·결과·날짜는 비울 수 없습니다")
+            raise ValueError("Stage, result, and date cannot be empty. Fill them in.")
         return self
 
 
@@ -351,7 +351,7 @@ class ApplicationPatch(BaseModel):
         nulls = [k for k in ("company", "position", "job_category", "stage", "status")
                  if k in self.model_fields_set and getattr(self, k) is None]
         if nulls:
-            raise ValueError(f"비울 수 없는 항목이에요: {', '.join(nulls)}")
+            raise ValueError(f"These fields cannot be empty: {', '.join(nulls)}. Fill them in or leave them out.")
         return self
 
 

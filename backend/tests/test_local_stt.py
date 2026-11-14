@@ -177,7 +177,7 @@ def test_download_failure_keeps_audio_reports_health_and_retries_later(client, l
     a = upload(client, h, aid, webm()).json()
     assert a["stt_status"] == "failed" and a["transcript"] is None and a["audio_available"]
     st = client.get("/health").json()["stt"]
-    assert st["available"] is True and st["state"] == "error" and "내려받지 못했어요" in st["error"]
+    assert st["available"] is True and st["state"] == "error" and "could not be downloaded" in st["error"]
     assert "network" not in st["error"]  # 내부 예외 문구는 내보내지 않는다
     # 실패를 기억하지 않는다: 네트워크가 돌아오면 다시 전사가 모델을 받아 성공한다
     local.download_error = None
@@ -192,7 +192,7 @@ def test_missing_model_with_download_disabled_fails_without_network(client, loca
     h, aid = answer(client)
     assert upload(client, h, aid, webm()).json()["stt_status"] == "failed"
     assert all(only for _, only, _ in local.downloads)
-    assert "LOCAL_STT_ALLOW_DOWNLOAD" in client.get("/health").json()["stt"]["error"]
+    assert "downloading is turned off" in client.get("/health").json()["stt"]["error"]
 
 
 @pytest.mark.parametrize("name", ["huge", "base"])
@@ -204,7 +204,7 @@ def test_model_load_failure_is_a_retryable_failure(client, local, monkeypatch, n
     a = upload(client, h, aid, webm()).json()
     assert a["stt_status"] == "failed" and a["audio_available"]
     st = client.get("/health").json()["stt"]
-    assert st["state"] == "error" and ("알 수 없는 모델" in st["error"] if name == "huge" else "불러오지 못했어요" in st["error"])
+    assert st["state"] == "error" and ("Unknown speech model" in st["error"] if name == "huge" else "could not be loaded" in st["error"])
 
 
 def test_broken_install_is_a_failure_not_a_server_error(client, local, monkeypatch):
@@ -215,7 +215,7 @@ def test_broken_install_is_a_failure_not_a_server_error(client, local, monkeypat
     h, aid = answer(client)
     r = upload(client, h, aid, webm())
     assert r.status_code == 200 and r.json()["stt_status"] == "failed" and r.json()["audio_available"]
-    assert "라이브러리를 불러오지 못했어요" in client.get("/health").json()["stt"]["error"]
+    assert "speech library could not be loaded" in client.get("/health").json()["stt"]["error"]
 
 
 def test_silence_fails_before_the_model_and_retry_succeeds(client, local, monkeypatch):
@@ -328,7 +328,7 @@ def test_off_or_removed_provider_is_unavailable(client, local, monkeypatch, prov
     h, aid = answer(client)
     assert upload(client, h, aid, webm()).json()["stt_status"] == "unavailable"
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
-    assert r.status_code == 503 and "STT_PROVIDER=off" in r.json()["detail"]
+    assert r.status_code == 503 and "transcription is turned off" in r.json()["detail"]
     assert local.calls == []
     health = client.get("/health").json()
     assert health["stt"]["provider"] == "off" and health["stt"]["available"] is False

@@ -67,7 +67,7 @@ AUDIO_MEDIA_TYPES = {"webm": "audio/webm", "m4a": "audio/mp4", "mp4": "audio/mp4
 def _audio_media_type(path: str) -> str:
     extension = path.rsplit(".", 1)[-1].lower()
     if extension not in AUDIO_MEDIA_TYPES:
-        raise HTTPException(415, "지원하지 않는 녹음 형식입니다. WebM, MP4, M4A, WAV 등의 오디오 파일을 사용해 주세요")
+        raise HTTPException(415, "Unsupported recording format. Use an audio file such as WebM, MP4, M4A, or WAV.")
     return AUDIO_MEDIA_TYPES[extension]
 
 
@@ -84,7 +84,7 @@ def _own_session(db: Session, user_id: str, session_id: str) -> PracticeSession:
         .options(selectinload(PracticeSession.answers).selectinload(PracticeAnswer.question))
     )
     if not s:
-        raise HTTPException(404, "연습 세션을 찾을 수 없습니다")
+        raise HTTPException(404, "Practice session not found. Check that it still exists.")
     return s
 
 
@@ -96,7 +96,7 @@ def _own_answer(db: Session, user_id: str, answer_id: str) -> PracticeAnswer:
         .options(selectinload(PracticeAnswer.question))
     )
     if not a:
-        raise HTTPException(404, "답변을 찾을 수 없습니다")
+        raise HTTPException(404, "Answer not found. Reload the session and try again.")
     return a
 
 
@@ -106,7 +106,7 @@ def _own_application(db: Session, user_id: str, application_id: str | None) -> A
     application = valid_id(application_id) and db.scalar(
         select(Application).where(Application.id == application_id, Application.user_id == user_id))
     if not application:
-        raise HTTPException(404, "지원 건을 찾을 수 없습니다")
+        raise HTTPException(404, "Application not found. Check that it still exists.")
     return application
 
 
@@ -140,8 +140,8 @@ def _prefs_out(p: UserSettings | None) -> PracticeSettingsOut:
                                retention_days=settings.audio_retention_days)
 
 
-NEED_CONSENT = "녹음 전에 동의가 필요합니다"
-ANSWER_NOT_FOUND = "답변을 찾을 수 없습니다"
+NEED_CONSENT = "Consent is required before recording. Agree in Settings or in the recording prompt."
+ANSWER_NOT_FOUND = "Answer not found. Reload the session and try again."
 
 
 def _require_consent(db: Session, user_id: str) -> UserSettings:
@@ -191,9 +191,9 @@ def _report(answer: PracticeAnswer, db: Session) -> dict:
     try:
         return answer_coaching.coach(answer, db)
     except answer_coaching.NoTranscript:
-        raise HTTPException(422, "답변 전사문을 입력하거나 녹음해 주세요") from None
+        raise HTTPException(422, "Add a transcript or record an answer first.") from None
     except answer_coaching.TranscriptChanged:
-        raise HTTPException(409, "점검 중 답변이나 앞선 대화가 바뀌었어요. 현재 대화로 다시 점검해 주세요") from None
+        raise HTTPException(409, "The answer or earlier conversation changed during the check. Run the check again.") from None
 
 
 def _stt(data: bytes, filename: str, ctype: str) -> str:
@@ -245,10 +245,10 @@ def _classification_filters(stmt, types, keys, match):
 @router.put("/questions/{question_id}/classification", response_model=QuestionOut)
 def edit_classification(question_id: str, body: ClassificationIn, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
     if not settings.practice_insights_enabled:
-        raise HTTPException(409,"질문 분류 기능이 활성화되지 않았습니다")
+        raise HTTPException(409,"Question classification is turned off. Turn it on to use this option.")
     q = valid_id(question_id) and db.scalar(_visible_questions(user_id).where(Question.id==question_id,Question.user_id==user_id))
     if not q:
-        raise HTTPException(404,"수정할 수 있는 질문이 아닙니다")
+        raise HTTPException(404,"This question cannot be edited. Only questions you added can be edited.")
     db.execute(update(Question).where(Question.id==q.id).values(text=Question.text),execution_options={"synchronize_session":False})
     db.refresh(q)
     taxonomy.assign(q,body.question_type,body.competency_keys)
@@ -283,7 +283,7 @@ def list_questions(
 @router.post("/questions", response_model=QuestionOut, status_code=201)
 def add_question(body: QuestionIn, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
     if not settings.practice_insights_enabled and (body.question_type or body.competency_keys):
-        raise HTTPException(409,"질문 분류 기능이 활성화되지 않았습니다")
+        raise HTTPException(409,"Question classification is turned off. Turn it on to use this option.")
     q = Question(user_id=user_id, source="custom", **body.model_dump(exclude={"question_type","competency_keys"}))
     if {"question_type","competency_keys"} & body.model_fields_set:
         taxonomy.assign(q,body.question_type,body.competency_keys)
@@ -296,7 +296,7 @@ def add_question(body: QuestionIn, user_id: str = Depends(current_user_id), db: 
 def delete_question(question_id: str, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
     q = valid_id(question_id) and db.scalar(select(Question).where(Question.id == question_id, Question.user_id == user_id))
     if not q:
-        raise HTTPException(404, "삭제할 수 있는 질문이 아닙니다(공용 질문은 삭제 불가)")
+        raise HTTPException(404, "This question cannot be deleted. Shared questions are read-only.")
     # Supabase(supabase/schema.sql)는 질문을 지우면 답변 행(on delete cascade)과 그 코칭 행(cascade)을 지우고,
     # 꼬리질문이 가리키던 원 답변 연결은 비운다(on delete set null). 로컬 SQLite는 외래 키를 강제하지 않으므로
     # 같은 일을 여기서 한다(어디서나 같게). 행이 사라지면 만료 정리로는 원본 녹음을 찾을 수 없으므로 녹음을 먼저 지우고,
@@ -304,7 +304,7 @@ def delete_question(question_id: str, user_id: str = Depends(current_user_id), d
     answers = db.scalars(select(PracticeAnswer).where(PracticeAnswer.question_id == q.id)).all()
     if delete_audios(answers)[1]:
         db.commit()
-        raise HTTPException(502, "원본 녹음을 지우지 못해 질문을 삭제하지 않았어요. 잠시 후 다시 시도해 주세요")
+        raise HTTPException(502, "The original recordings could not be deleted, so the question was kept. Try again in a moment.")
     ids = [a.id for a in answers]
     by_session: dict[tuple[str, str], list[str]] = {}
     for a in answers:
@@ -331,9 +331,9 @@ def generate(body: GenerateIn, user_id: str = Depends(current_user_id), db: Sess
         if not essay:
             essay = coaching.essay_text(coaching.snapshot(app, body.essay_basis))
     if not (company or position or essay):
-        raise HTTPException(422, "회사, 직무, 자소서 중 하나 이상이 필요합니다")
+        raise HTTPException(422, "Add a company, a job, or an essay to generate questions.")
     if not settings.practice_insights_enabled and (body.question_type or body.competency_keys):
-        raise HTTPException(409,"질문 분류 기능이 활성화되지 않았습니다")
+        raise HTTPException(409,"Question classification is turned off. Turn it on to use this option.")
     # 맞춤 질문은 템플릿으로만 만든다(외부 서비스 없음). 분류 선호는 받지만 템플릿 선택에는 쓰지 않는다
     generated = llm.template_questions(company or "", position or "", essay or "", body.count)
     # 이미 가진 질문과 문구가 같으면 다시 저장하지 않는다
@@ -369,10 +369,10 @@ def create_session(body: SessionIn, user_id: str = Depends(current_user_id), db:
         found = {q.id: q for q in db.scalars(_visible_questions(user_id).where(Question.id.in_(ids)))} if ids else {}
         missing = [qid for qid in body.question_ids if qid not in found]
         if missing:
-            raise HTTPException(404, f"질문을 찾을 수 없습니다: {missing}")
+            raise HTTPException(404, f"Questions not found: {missing}. Reload the list and pick again.")
         picked = [found[qid] for qid in body.question_ids]
         if body.application_id and any(q.application_id and q.application_id != body.application_id for q in picked):
-            raise HTTPException(422, "다른 지원 건에서 만든 질문이 포함되어 있어요. 지원 건과 질문을 맞춰 주세요")
+            raise HTTPException(422, "Some questions belong to a different application. Pick questions that match the selected application.")
     else:
         stmt = _classification_filters(_visible_questions(user_id),body.question_types,body.competency_keys,body.competency_match)
         if body.categories:
@@ -383,7 +383,7 @@ def create_session(body: SessionIn, user_id: str = Depends(current_user_id), db:
             stmt = stmt.where(or_(Question.job_category == body.job_category, Question.job_category.is_(None)))
         pool = list(db.scalars(stmt))
         if not pool:
-            raise HTTPException(422, "조건에 맞는 질문이 없습니다")
+            raise HTTPException(422, "No questions match these filters. Change the filters and try again.")
         # 맞춤(생성·직접 추가) 질문을 먼저 뽑고 나머지를 공용 질문에서 채운다
         own = [q for q in pool if q.user_id]
         bank = [q for q in pool if not q.user_id]
@@ -411,7 +411,7 @@ def create_session(body: SessionIn, user_id: str = Depends(current_user_id), db:
             current=set(db.scalars(stmt.with_only_columns(Question.id).where(Question.id.in_(ids))))
             if current!=ids:
                 db.rollback()
-                raise HTTPException(409,"질문 분류가 선택 중 바뀌었어요. 조건을 확인하고 다시 시작해 주세요")
+                raise HTTPException(409,"Question categories changed while you were choosing. Check your filters and start again.")
     s.answers = [PracticeAnswer(question=q, order_no=i + 1, **({"question_classification":taxonomy.capture(q)} if settings.practice_insights_enabled else {})) for i, q in enumerate(picked)]
     s.context = PracticeContext(snapshot=context, followups_enabled=body.followups_enabled)
     db.add(s)
@@ -502,7 +502,7 @@ def delete_session(session_id: str, user_id: str = Depends(current_user_id), db:
     # 행이 사라지면 만료 정리로도 못 지우므로 원본 녹음을 먼저 지운다. 하나라도 못 지우면 세션을 남긴다
     if delete_audios(s.answers)[1]:
         db.commit()  # 지운 것은 반영하고, 못 지운 것은 다음 만료 정리가 다시 지운다
-        raise HTTPException(502, "원본 녹음을 지우지 못해 세션을 삭제하지 않았어요. 잠시 후 다시 시도해 주세요")
+        raise HTTPException(502, "The original recordings could not be deleted, so the session was kept. Try again in a moment.")
     db.delete(s)
     db.commit()
     # 답변을 읽은 뒤 커밋된 업로드의 녹음은 위에서 지우지 못했지만 그 행은 함께 지워졌다: 세션 폴더에 남은 파일도 지운다
@@ -584,9 +584,9 @@ def upload_audio(
     # Read at most the limit plus one byte so an oversized upload is bounded.
     data = file.file.read(MAX_AUDIO_BYTES + 1)
     if not data:
-        raise HTTPException(422, "빈 녹음 파일입니다")
+        raise HTTPException(422, "The recording is empty. Record again and upload it.")
     if len(data) > MAX_AUDIO_BYTES:
-        raise HTTPException(413, "녹음 파일이 25MB를 넘습니다")
+        raise HTTPException(413, "The recording is larger than 25 MB. Record a shorter answer and upload it again.")
     ext = (file.filename or "rec.webm").rsplit(".", 1)[-1].lower()
     ctype = _audio_media_type(f"recording.{ext}")
     path = f"{user_id}/{a.session_id}/{a.id}.{secrets.token_hex(6)}.{ext}"
@@ -605,7 +605,7 @@ def upload_audio(
         # 이 업로드보다 나중에 시작한 녹음이 이미 저장됐다: 그 녹음과 전사문을 덮지 않는다
         db.commit()
         _discard(db, user_id, path)
-        raise HTTPException(409, "더 나중에 녹음한 답변이 이미 저장됐어요. 새로고침해 확인해 주세요")
+        raise HTTPException(409, "A newer recording is already saved. Reload to see it.")
     previous = owned_audio_path(a)  # 이번 녹음을 연결한 뒤 지울 이전 녹음 파일(그사이 지웠으면 None)
     # 저장·전사하는 동안 원본 녹음을 모두 지웠다(전체 삭제는 아직 행이 가리키지 않는 이 파일도 지우고 센다):
     # 그 삭제 뒤에 커밋한 것과 같게 녹음을 지운 것으로 저장한다
@@ -653,18 +653,18 @@ def _load_audio(path: str) -> bytes | None:
     try:
         return storage.load(path)
     except storage.StorageError as e:
-        raise HTTPException(502, "녹음 저장소에 연결하지 못했어요. 잠시 후 다시 시도해 주세요") from e
+        raise HTTPException(502, "Could not reach recording storage. Try again in a moment.") from e
 
 
 @router.get("/answers/{answer_id}/audio")
 def download_audio(answer_id: str, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
     a = _own_answer(db, user_id, answer_id)
     if a.audio_deleted_at:
-        raise HTTPException(404, "원본 녹음은 삭제됐어요")
+        raise HTTPException(404, "The original recording was deleted.")
     path = owned_audio_path(a)
     data = _load_audio(path) if path else None
     if data is None:
-        raise HTTPException(404, "녹음이 없습니다")
+        raise HTTPException(404, "No recording found. Record an answer first.")
     return Response(content=data, media_type=_audio_media_type(path))
 
 
@@ -674,7 +674,7 @@ def delete_answer_audio(answer_id: str, user_id: str = Depends(current_user_id),
     a = _own_answer(db, user_id, answer_id)
     if a.audio_path and not delete_audio(a):
         db.commit()  # 보관 기한을 당겨 둔 것을 저장: 다음 만료 정리가 다시 지운다
-        raise HTTPException(502, "녹음을 지우지 못했어요. 잠시 뒤 자동으로 다시 지워요")
+        raise HTTPException(502, "The recording could not be deleted. It will be retried automatically shortly.")
     db.commit()
     return a
 
@@ -689,16 +689,16 @@ def retry_transcribe(answer_id: str, user_id: str = Depends(current_user_id), db
     started = _now()
     a = _own_answer(db, user_id, answer_id)
     if a.audio_deleted_at:
-        raise HTTPException(404, "원본 녹음은 삭제됐어요")
+        raise HTTPException(404, "The original recording was deleted.")
     path = owned_audio_path(a)
     if not path:
-        raise HTTPException(404, "녹음이 없습니다")
+        raise HTTPException(404, "No recording found. Record an answer first.")
     if not stt.available():
         raise HTTPException(503, stt.unavailable_reason())
     ctype = _audio_media_type(path)
     data = _load_audio(path)
     if data is None:
-        raise HTTPException(404, "녹음이 없습니다")
+        raise HTTPException(404, "No recording found. Record an answer first.")
     _require_consent(db, user_id)  # 녹음을 다시 전사하므로 업로드와 같은 동의가 필요하다
     recorded_at = a.recorded_at
     transcript = _stt(data, path.rsplit("/", 1)[-1], ctype)
@@ -710,7 +710,7 @@ def retry_transcribe(answer_id: str, user_id: str = Depends(current_user_id), db
     db.refresh(a)
     if a.recorded_at != recorded_at:
         db.commit()
-        raise HTTPException(409, "전사하는 동안 새 녹음이 저장됐어요. 새 녹음으로 확인해 주세요")
+        raise HTTPException(409, "A new recording was saved during transcription. Check the new recording instead.")
     if prefs is None:
         # 철회했다: 원본은 철회가 지운다(아직 남았으면 여기서 지운다). 이미 얻은 전사문만 남긴다
         if a.audio_path:
@@ -725,7 +725,7 @@ def retry_transcribe(answer_id: str, user_id: str = Depends(current_user_id), db
             delete_audio(a)
         if not transcript:
             db.commit()
-            raise HTTPException(404, "원본 녹음은 삭제됐어요")
+            raise HTTPException(404, "The original recording was deleted.")
         _apply_transcript(a, transcript)
         db.commit()
         return a
@@ -781,13 +781,13 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     a = _own_answer(db, user_id, answer_id)
     s = a.session
     if s.finished_at:
-        raise HTTPException(409, "종료한 면접입니다. 회고에서 다시 연습해 주세요")
+        raise HTTPException(409, "This practice has ended. Practice again from the review.")
     if not a.transcript or not a.transcript.strip():
-        raise HTTPException(422, "답변 전사문을 입력하거나 녹음해 주세요")
+        raise HTTPException(422, "Add a transcript or record an answer first.")
     if not s.followups_enabled:
-        raise HTTPException(409, "이 세션은 꼬리질문을 사용하지 않도록 설정되어 있습니다")
+        raise HTTPException(409, "Follow-up questions are turned off for this session.")
     if a.parent_answer_id:
-        raise HTTPException(409, "꼬리질문은 원 질문당 한 번 진행합니다")
+        raise HTTPException(409, "Each question allows only one follow-up.")
     if db.scalar(select(AnswerCoaching).where(AnswerCoaching.parent_answer_id == a.id)):
         return _session_out(_own_session(db, user_id, s.id))
     if not answer_coaching.current_report(a):
@@ -801,12 +801,12 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     a = _own_answer(db, user_id, answer_id)
     s = a.session
     if s.finished_at:
-        raise HTTPException(409, "종료한 면접입니다. 회고에서 다시 연습해 주세요")
+        raise HTTPException(409, "This practice has ended. Practice again from the review.")
     if db.scalar(select(AnswerCoaching).where(AnswerCoaching.parent_answer_id == a.id)):
         return _session_out(_own_session(db, user_id, s.id))
     report = answer_coaching.current_report(a)
     if not report:
-        raise HTTPException(409, "답변이나 앞선 대화가 바뀌었어요. 현재 대화로 다시 점검해 주세요")
+        raise HTTPException(409, "The answer or earlier conversation changed. Run the check again.")
     suggestion = report["followup"]
     q = Question(user_id=user_id, category=a.question.category, source="generated",
                  application_id=s.application_id, job_category=a.question.job_category, text=suggestion["text"],
@@ -843,10 +843,10 @@ def redrill(session_id: str, user_id: str = Depends(current_user_id), db: Sessio
         targets.append({"answer_id": a.id, "question_id": a.question_id,
                         "focus": drill_focus(weak, low),
                         "next_action": report["next_action"] if report else
-                                       f"지난번 자기평가 {low}점이었던 답변이에요. 아쉬웠던 점을 떠올리며 다시 답해 보세요."})
+                                       f"You rated this answer {low} last time. Think about what fell short and answer again."})
     if not picked:
-        raise HTTPException(422, "먼저 답변을 점검하거나 자기평가를 남겨 주세요. "
-                                 "보완 항목이 있거나 자기평가가 1~2점인 답변을 모아 다시 연습합니다")
+        raise HTTPException(422, "Check an answer or add a self-rating first. "
+                                 "Answers that need work or have a self-rating of 1 or 2 are practiced again.")
     frozen = deepcopy(original.context_snapshot or {})
     frozen.update({"origin_session_id": original.id, "drill_targets": targets})
     s = PracticeSession(user_id=user_id, mode="free", title=f"보완 연습 · {original.title}"[:200],

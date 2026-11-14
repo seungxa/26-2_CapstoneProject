@@ -43,7 +43,7 @@ class _Off:
         return False
 
     def unavailable_reason(self) -> str:
-        return "자동 전사가 꺼져 있습니다(STT_PROVIDER=off)"
+        return "Automatic transcription is turned off. Type the transcript instead."
 
     def transcribe(self, audio: bytes, filename: str, content_type: str) -> str:
         raise STTError("provider_error", self.unavailable_reason())
@@ -75,7 +75,7 @@ def decode(data: bytes, max_sec: float) -> "numpy.ndarray":  # noqa: F821 (numpy
     try:
         with av.open(io.BytesIO(data), mode="r") as container:
             if not container.streams.audio:
-                raise STTError("invalid_audio", "녹음에서 오디오를 찾지 못했어요")
+                raise STTError("invalid_audio", "No audio found in the recording. Record again.")
             frames = container.decode(audio=0)
             while True:
                 try:
@@ -88,21 +88,21 @@ def decode(data: bytes, max_sec: float) -> "numpy.ndarray":  # noqa: F821 (numpy
                     chunks.append(out.to_ndarray().reshape(-1))
                     n += chunks[-1].size
                 if n > limit:
-                    raise STTError("too_long", f"녹음이 {max_sec / 60:.0f}분을 넘어 자동 전사하지 않았어요")
+                    raise STTError("too_long", f"The recording is longer than {max_sec / 60:.0f} minutes, so it was not transcribed automatically. Record a shorter answer.")
             for out in resampler.resample(None):
                 chunks.append(out.to_ndarray().reshape(-1))
     except STTError:
         raise
     except Exception as e:  # PyAV는 형식마다 다른 예외(FFmpegError, ValueError, IndexError…)를 낸다
         log.info("local STT: cannot decode audio: %r", e)
-        raise STTError("invalid_audio", "녹음 파일을 읽지 못했어요") from e
+        raise STTError("invalid_audio", "The recording file could not be read. Record again.") from e
     finally:
         # PyAV 리샘플러가 잡은 메모리는 gc가 돌아야 풀린다(faster-whisper decode_audio와 같은 처리. 그 함수는 PyAV 19에서
         # 없어진 metadata_errors 인자를 넘겨 쓸 수 없어 직접 푼다)
         del resampler
         gc.collect()
     if not chunks:
-        raise STTError("invalid_audio", "녹음에서 소리를 찾지 못했어요")
+        raise STTError("invalid_audio", "No sound found in the recording. Record again.")
     return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
@@ -145,7 +145,7 @@ class _Local:
         return self._installed
 
     def unavailable_reason(self) -> str:
-        return "faster-whisper가 설치되지 않아 로컬 전사를 할 수 없습니다(pip install -r requirements.txt)"
+        return "Local transcription is unavailable because faster-whisper is not installed. Install the backend requirements."
 
     def details(self) -> dict:
         return {"model": settings.local_stt_model, "state": self._state, "error": self._error}
@@ -160,17 +160,17 @@ class _Local:
         try:
             return download_model(name, local_files_only=True, cache_dir=cache)
         except ValueError:
-            raise STTError("model_load", f"알 수 없는 모델 이름이에요: {name}")
+            raise STTError("model_load", f"Unknown speech model name: {name}. Check the model setting.")
         except Exception:
             pass  # 캐시에 없다
         if not settings.local_stt_allow_download:
-            raise STTError("model_download", "모델이 캐시에 없고 내려받기가 꺼져 있어요(LOCAL_STT_ALLOW_DOWNLOAD)")
+            raise STTError("model_download", "The speech model is not available and downloading is turned off. Ask an administrator to enable it.")
         log.info("local STT: downloading model %s", name)
         try:
             return download_model(name, cache_dir=cache)
         except Exception as e:
             log.warning("local STT: model download failed: %r", e)
-            raise STTError("model_download", "음성 인식 모델을 내려받지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요") from e
+            raise STTError("model_download", "The speech model could not be downloaded. Check your connection and try again.") from e
 
     def model(self):
         """불러 둔 모델. 처음 한 번만 불러오고(동시에 들어와도 한 번), 설정이 바뀌었으면 다시 불러온다.
@@ -190,7 +190,7 @@ class _Local:
                     WhisperModel, download_model = _backend()
                 except Exception as e:  # 설치는 됐지만 CTranslate2 등을 불러오지 못했다
                     log.warning("local STT: cannot import faster-whisper: %r", e)
-                    raise STTError("model_load", "음성 인식 라이브러리를 불러오지 못했어요. 설치 상태를 확인해 주세요") from e
+                    raise STTError("model_load", "The speech library could not be loaded. Check the installation.") from e
                 path = self._resolve(download_model)
                 try:
                     model = WhisperModel(path, device=settings.local_stt_device,
@@ -198,7 +198,7 @@ class _Local:
                                          cpu_threads=settings.local_stt_cpu_threads)
                 except Exception as e:
                     log.warning("local STT: model load failed: %r", e)
-                    raise STTError("model_load", "음성 인식 모델을 불러오지 못했어요. 모델 파일이나 설정을 확인해 주세요") from e
+                    raise STTError("model_load", "The speech model could not be loaded. Check the model files and settings.") from e
             except STTError as e:
                 self._state, self._error = "error", e.message
                 raise
@@ -213,9 +213,9 @@ class _Local:
     def transcribe(self, audio: bytes, filename: str, content_type: str) -> str:
         samples = decode(audio, settings.local_stt_max_audio_sec)
         if float(abs(samples).max()) < SILENCE_PEAK:
-            raise STTError("no_speech", "녹음에 말소리가 없어요")
+            raise STTError("no_speech", "No speech found in the recording. Record again and speak closer to the microphone.")
         if not self._slot.acquire(timeout=settings.local_stt_queue_timeout_sec):
-            raise STTError("busy", "다른 녹음을 전사하느라 바빠요. 잠시 뒤 다시 시도해 주세요")
+            raise STTError("busy", "Another recording is being transcribed. Try again in a moment.")
         try:
             model = self.model()
             started = time.monotonic()
@@ -223,12 +223,12 @@ class _Local:
                 text, _, _ = run_whisper(model, samples)
             except Exception as e:
                 log.warning("local STT: transcription failed: %r", e)
-                raise STTError("provider_error", "음성 인식 중 오류가 났어요. 다시 시도해 주세요") from e
+                raise STTError("provider_error", "Speech recognition failed. Try again.") from e
             log.info("local STT: %.1fs audio in %.1fs", samples.size / SAMPLE_RATE, time.monotonic() - started)
         finally:
             self._slot.release()
         if not text:
-            raise STTError("no_speech", "말소리를 인식하지 못했어요")
+            raise STTError("no_speech", "No speech recognized. Record again and speak closer to the microphone.")
         return text
 
 
