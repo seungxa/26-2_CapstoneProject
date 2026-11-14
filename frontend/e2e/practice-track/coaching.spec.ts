@@ -28,13 +28,13 @@ test("submitted source → text answer → follow-up → evidence review → foc
   page.on("pageerror", (e) => errors.push(e.message));
   const { app } = await seed(request);
   await page.goto(`/practice?application=${app.id}`);
-  await expect(page.getByRole("heading", { name: "이번 면접의 기준" })).toBeVisible();
-  const generate = page.locator("section").filter({ has: page.getByRole("heading", { name: "맞춤 질문 만들기" }) });
+  await expect(page.getByRole("combobox", { name: "Application", exact: true })).toHaveValue(app.id);
+  await page.getByText("Generate Questions from an Essay", { exact: true }).click();
+  const generate = page.locator("details").filter({ has: page.getByText("Generate Questions from an Essay", { exact: true }) });
   await generate.getByRole("spinbutton").fill("1");
-  await generate.getByRole("button", { name: "질문 생성" }).click();
-  await expect(page.getByText("1개 선택됨")).toBeVisible();
-  await page.getByRole("button", { name: "선택한 질문으로 자유 연습" }).click();
-  await expect(page.getByRole("heading", { name: "이번 면접의 기준 자료" })).toBeVisible();
+  await generate.getByRole("button", { name: "Generate Questions", exact: true }).click();
+  await page.getByRole("button", { name: "Start Practice (1)", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Practice Materials" })).toBeVisible();
   await page.locator(".source-detail summary").first().click();
   await expect(page.locator(".evidence-text").first()).toContainText("40%");
   await expect(page.locator(".evidence-text").first()).not.toContainText("70%");
@@ -73,7 +73,7 @@ test("submitted source → text answer → follow-up → evidence review → foc
   await page.screenshot({ path: docScreenshotPath(`coaching-review-${testInfo.project.name}`, (f) => testInfo.outputPath(f)), fullPage: true });
   await page.getByRole("button", { name: "보완 항목 1개 다시 연습" }).click();
   await expect(page.getByRole("heading", { name: /보완 연습/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: "이전 답변과 회고 보기" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "See the Previous Review" })).toBeVisible();
   await expect(page.getByRole("radio", { name: "글로 답변" })).toBeVisible();
   expect(errors).toEqual([]);
 });

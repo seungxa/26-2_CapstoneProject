@@ -24,12 +24,14 @@ async function routeSession(page:Page,s:Awaited<ReturnType<typeof reviewedSessio
 test('Track source omits hidden direct inputs from question generation requests',async({page,request})=>{
  const app=await (await request.post(`${API}/track/applications`,{data:{company:'선택한 Track 회사',position:'선택한 직무'}})).json();
  await page.goto('/practice');
- await page.getByLabel('회사',{exact:true}).fill('숨겨질 직접 회사');
- await page.getByLabel('직무',{exact:true}).last().fill('숨겨질 직접 직무');
- await page.getByLabel('자기소개서 내용',{exact:true}).fill('숨겨질 직접 자소서');
- await page.getByLabel('이번 연습에 연결할 지원 건').selectOption(app.id);
+ await page.getByText('Generate Questions from an Essay',{exact:true}).click();
+ await page.getByRole('textbox',{name:'Company',exact:true}).fill('숨겨질 직접 회사');
+ await page.getByRole('textbox',{name:'Role',exact:true}).fill('숨겨질 직접 직무');
+ await page.getByRole('textbox',{name:'Essay',exact:true}).fill('숨겨질 직접 자소서');
+ await page.getByRole('combobox',{name:'Application',exact:true}).selectOption(app.id);
+ await expect(page.getByRole('textbox',{name:'Essay',exact:true})).toHaveCount(0);
  const outgoing=page.waitForRequest(r=>r.method()==='POST'&&r.url().endsWith('/practice/questions/generate'));
- await page.getByRole('button',{name:'질문 생성',exact:true}).click();
+ await page.getByRole('button',{name:'Generate Questions',exact:true}).click();
  const body=(await outgoing).postDataJSON();
  expect(body.application_id).toBe(app.id);
  expect(body).not.toHaveProperty('company');

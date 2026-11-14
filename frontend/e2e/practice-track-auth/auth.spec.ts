@@ -26,7 +26,7 @@ test('real signed bearer tokens isolate Track and switching users clears old dra
 });
 test('logout away from the feature clears its tab observations and protects later deep links',async({page})=>{
  await page.route('**/rest/v1/profiles*',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([{archive:null}])}));
- await page.goto('/practice');await expect(page.getByRole('heading',{name:'면접 연습',exact:true})).toBeVisible();await seedVoice(page);expect(await hasVoice(page)).toBe(true);
+ await page.goto('/practice');await expect(page.getByRole('heading',{name:'Practice',exact:true})).toBeVisible();await seedVoice(page);expect(await hasVoice(page)).toBe(true);
  await page.locator('.feature-nav').getByRole('link',{name:'Profile',exact:true}).click();await expect(page.getByRole('heading',{name:'기본정보',exact:true})).toBeVisible();
  await page.locator('.header-auth').getByRole('button',{name:'Log Out',exact:true}).click();await expect(page.locator('.header-auth').getByRole('link',{name:'Log In',exact:true})).toBeVisible();
  expect(await hasVoice(page)).toBe(false);
@@ -38,7 +38,7 @@ test.describe('team login',()=>{
   await page.goto('/practice/history');await expect(page).toHaveURL(/\/login$/);
   await page.getByLabel('Email',{exact:true}).fill('practice@example.invalid');await page.getByLabel('Password',{exact:true}).fill('local-test-only');
   await page.locator('form').getByRole('button',{name:'Log In',exact:true}).click();await expect(page).toHaveURL('http://localhost:5189/');
-  await page.locator('.dashboard-card[href="/practice"]').click();await expect(page.getByRole('heading',{name:'면접 연습',exact:true})).toBeVisible();
+  await page.locator('.dashboard-card[href="/practice"]').click();await expect(page.getByRole('heading',{name:'Practice',exact:true})).toBeVisible();
   await expect(page.locator('.site-header')).toHaveCount(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);
  });
 });

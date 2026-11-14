@@ -18,7 +18,7 @@ test('dashboard stays independent and feature styles do not change the existing 
  await page.goto('/');await expect(page.getByRole('heading',{name:'Welcome to JobSeeker!',exact:true})).toBeVisible();
  expect(featureRequests).toHaveLength(0);
  const header=await page.locator('.site-header').evaluate(element=>getComputedStyle(element).backgroundColor);
- await page.locator('.dashboard-card[href="/practice"]').click();await expect(page.getByRole('heading',{name:'면접 연습',exact:true})).toBeVisible();
+ await page.locator('.dashboard-card[href="/practice"]').click();await expect(page.getByRole('heading',{name:'Practice',exact:true})).toBeVisible();
  expect(featureRequests.length).toBeGreaterThan(0);
  await page.locator('.feature-nav').getByRole('link',{name:'Profile',exact:true}).click();
  await expect(page.getByRole('heading',{name:'My Profile',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:'기본정보',exact:true})).toBeVisible();

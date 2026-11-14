@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { api } from "../api";
+import { label } from "../labels";
+import { essayPreview } from "../practice/essays";
 import { questionsForApplication } from "../practice/questions";
 import { ClassificationControls } from "../components/ClassificationControls";
 import { CATEGORIES, JOB_CATEGORIES, type Application, type ApplicationDetail, type Category, type Question, type PracticeTaxonomy, type ClassificationInput } from "../types";
 
-const SOURCE_LABEL = { bank: "공용", generated: "맞춤", custom: "직접 추가" } as const;
+const SOURCES = [["bank", "Standard"], ["generated", "Generated"], ["custom", "Custom"]] as const;
+/** Errors show next to the part of the screen whose action failed. */
+type ErrorPlace = "questions" | "start" | "generate";
 
 export default function PracticeHome() {
   const nav = useNavigate();
@@ -31,12 +35,14 @@ export default function PracticeHome() {
   const [filter, setFilter] = useState({ category: "", job_category: "", source: "", q: "" });
   const [selected, setSelected] = useState<string[]>([]);
   useEffect(() => { setSelected([]); }, [applicationId]);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<{ at: ErrorPlace; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const [essayBasis, setEssayBasis] = useState<"submitted" | "latest">("submitted");
   const [jobDescription, setJobDescription] = useState("");
   const [followups, setFollowups] = useState(true);
+  // Only shows or hides the custom question form.
+  const [adding, setAdding] = useState(false);
 
   // 모의시험 설정
   const [mock, setMock] = useState({ count: 5, prep_sec: 30, answer_sec: 90, job_category: "" });
@@ -59,7 +65,7 @@ export default function PracticeHome() {
     let alive = true;
     api.questions({ category: filter.category, job_category: filter.job_category, source: filter.source, ...(taxonomy?.enabled?{question_type:tagFilter.type?[tagFilter.type]:[],competency_key:tagFilter.keys,competency_match:tagFilter.match}:{}) })
       .then((qs) => alive && setQuestions(qs))
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr({ at: "questions", text: e.message }));
     return () => {
       alive = false;
     };
@@ -72,9 +78,16 @@ export default function PracticeHome() {
     () => questionsForApplication(questions, applicationId).filter(q => !filter.q || q.text.includes(filter.q)),
     [questions, applicationId, filter.q],
   );
+  const preview = useMemo(() => essayPreview(applicationDetail?.essay_items ?? [], essayBasis), [applicationDetail, essayBasis]);
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  // Filters folded under More Options still narrow the list, so the list says when they are on.
+  const foldedFilters = !!(filter.job_category || filter.source || (taxonomy?.enabled && (tagFilter.type || tagFilter.keys.length)));
+  const clearFoldedFilters = () => {
+    setFilter((f) => ({ ...f, job_category: "", source: "" }));
+    setTagFilter((t) => ({ ...t, type: "", keys: [] }));
+  };
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (at: ErrorPlace, fn: () => Promise<void>) => {
     if (running.current) return;
     running.current = true;
     setBusy(true);
@@ -82,15 +95,16 @@ export default function PracticeHome() {
     try {
       await fn();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr({ at, text: (e as Error).message });
     } finally {
       running.current = false;
       setBusy(false);
     }
   };
+  const errorAt = (at: ErrorPlace) => err?.at === at ? <p className="err" role="alert">{err.text}</p> : null;
 
   const startFree = () =>
-    run(async () => {
+    run("start", async () => {
       const s = await api.createSession({ mode: "free", question_ids: selected,
         application_id: applicationId || undefined, essay_basis: essayBasis,
         job_description: jobDescription, followups_enabled: followups });
@@ -98,7 +112,7 @@ export default function PracticeHome() {
     });
 
   const startMock = () =>
-    run(async () => {
+    run("start", async () => {
       const s = await api.createSession({
         mode: "mock",
         count: mock.count,
@@ -116,7 +130,7 @@ export default function PracticeHome() {
     });
 
   const generate = () =>
-    run(async () => {
+    run("generate", async () => {
       const made = await api.generateQuestions({
         application_id: applicationId || undefined,
         ...(!applicationId ? {
@@ -129,173 +143,196 @@ export default function PracticeHome() {
         essay_basis: essayBasis,
         ...(taxonomy?.enabled?genClassification:{}),
       });
-      if (made.length === 0) throw new Error("새로 만든 질문이 없습니다. 같은 질문이 이미 질문은행에 있어요.");
+      if (made.length === 0) throw new Error("No new questions: they're all in your list already. Try a different essay.");
       setFilter((f) => ({ ...f, source: "generated", category: "" }));
       setSelected(made.map((q) => q.id));
       reload();
     });
 
   const addCustom = () =>
-    run(async () => {
+    run("questions", async () => {
       await api.addQuestion({ ...newQ, job_category: filter.job_category || null, ...(taxonomy?.enabled?classification:{}) });
       setNewQ({ ...newQ, text: "" });
+      setAdding(false);
       reload();
     });
 
+  const categoryOptions = CATEGORIES.map((c) => <option key={c} value={c}>{label("category", c)}</option>);
+  const jobOptions = JOB_CATEGORIES.map((j) => <option key={j} value={j}>{label("job", j)}</option>);
+
   return (
-    <>
-      <h1>면접 연습</h1>
-      <p className="small muted">
-        JobSeeker는 면접 연습 전용이에요. 실제 면접 중에는 쓰지 마세요. <Link to="/practice/settings">녹음·개인정보 설정</Link>
-      </p>
-      {err && <p className="err">{err}</p>}
-      <section className="card practice-settings">
-        <h2>이번 면접의 기준</h2>
-        <p className="small muted">지원 건을 연결하면 시작 시점의 자소서를 보관하고, 그 내용을 기준으로 답변과 꼬리질문을 연결해요.</p>
-        <label>이번 연습에 연결할 지원 건
-          <select value={applicationId} disabled={busy} onChange={e => setApplicationId(e.target.value)}>
-            <option value="">연결 안 함 · 직접 입력으로 질문 생성 가능</option>
-            {apps.map(a => <option key={a.id} value={a.id}>{a.company} · {a.position}</option>)}
+    <div className="practice-start">
+      <h1>Practice</h1>
+      <section className="card" aria-labelledby="practice-questions-title">
+        <div className="row q-head">
+          <h2 id="practice-questions-title" className="grow">Questions</h2>
+          <input type="search" className="q-search" placeholder="Search questions" aria-label="Search questions" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} />
+          <select aria-label="Filter by category" value={filter.category} onChange={(e) => setFilter({ ...filter, category: e.target.value })}>
+            <option value="">All Categories</option>
+            {categoryOptions}
           </select>
-        </label>
-        <div className="row">
-          <label className="grow">자소서 기준
-            <select value={essayBasis} onChange={(e) => setEssayBasis(e.target.value as "submitted" | "latest")}>
-              <option value="submitted">제출본 우선 · 제출 표시가 없으면 최신본</option>
-              <option value="latest">최신본으로 연습</option>
-            </select>
-          </label>
-          <label className="check-label"><input type="checkbox" checked={followups} onChange={(e) => setFollowups(e.target.checked)} />답변 뒤 꼬리질문 선택하기</label>
         </div>
-        <div className="spacer" />
-        <label>채용 공고의 주요 업무·자격 요건 (선택)
-          <textarea value={jobDescription} maxLength={12000} onChange={(e) => setJobDescription(e.target.value)} placeholder="지원하는 직무의 업무와 요구 역량을 붙여 넣어 주세요." style={{ minHeight: 80 }} />
-        </label>
-        <div data-testid="practice-context-preview" className="small">
-          <h3>시작 전 기준 자료 확인</h3>
-          <p>{applicationId ? applicationDetail ? `${applicationDetail.company} · ${applicationDetail.position}` : previewError ?? "지원 건을 불러오는 중…" : "연결된 지원 건 없음 · 제출본 연결은 판단유보로 안내해요."}</p>
-          <p>자소서: {essayBasis === "submitted" ? "제출본 우선 · 없으면 최신본" : "최신본"} · 공고 {jobDescription.trim() ? "포함" : "없음"} · 꼬리질문 {followups ? "사용" : "사용 안 함"}</p>
-          {applicationDetail?.essay_items.map(item => {
-            const submitted=item.versions.find(v=>v.id===item.submitted_version_id);
-            const version=essayBasis==='submitted'&&submitted ? submitted : item.versions[item.versions.length-1];
-            return version ? <p key={item.id}>{item.question_text} · v{version.version_no} · {essayBasis==='submitted'&&submitted ? item.submission_confirmation==='confirmed' ? '제출본 · 확인됨' : item.submission_confirmation==='legacy_unverified' ? '이전 제출 표시 · 확인 전' : '제출본 · 확인 기록 없음' : '최신본'}</p> : null;
-          })}
-          <p className="muted">자유 연습과 모의시험 모두 이 기준을 사용해요. 실제 기준 자료는 시작하는 순간 고정해요.</p>
-        </div>
-      </section>
-      <div className="grid2">
-        <section className="card">
-          <h2>모의시험 모드</h2>
-          <p className="small muted">실제 면접처럼 질문이 하나씩 나오고, 준비 시간 뒤 자동으로 녹음이 시작돼 제한 시간에 끝납니다.</p>
-          <div className="row">
-            <label>질문 수<input type="number" min={1} max={20} value={mock.count} onChange={(e) => setMock({ ...mock, count: +e.target.value })} /></label>
-            <label>준비(초)<input type="number" min={0} max={300} value={mock.prep_sec} onChange={(e) => setMock({ ...mock, prep_sec: +e.target.value })} /></label>
-            <label>답변(초)<input type="number" min={10} max={600} value={mock.answer_sec} onChange={(e) => setMock({ ...mock, answer_sec: +e.target.value })} /></label>
-          </div>
-          <div className="spacer" />
-          <div className="row small">
-            {CATEGORIES.map((c) => (
-              <label key={c} style={{ flexDirection: "row", alignItems: "center" }}>
-                <input type="checkbox" checked={mockCats.includes(c)} onChange={() => setMockCats((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]))} />
-                {c}
-              </label>
-            ))}
-          </div>
-          <div className="spacer" />
-          <div className="row">
-            <label className="grow">직무
-              <select value={mock.job_category} onChange={(e) => setMock({ ...mock, job_category: e.target.value })}>
-                <option value="">공통</option>
-                {JOB_CATEGORIES.map((j) => <option key={j}>{j}</option>)}
-              </select>
-            </label>
-            <p className="small muted">위에서 연결한 지원 건의 맞춤 질문을 포함해요.</p>
-          </div>
-          <div className="spacer" />
-          {taxonomy?.enabled&&<p className="small muted">아래 질문은행의 질문 유형·역량 필터가 모의시험 질문 선택에도 적용돼요.</p>}
-          <button className="primary" disabled={busy || mockCats.length === 0} onClick={startMock}>모의시험 시작</button>
-        </section>
-
-        <section className="card">
-          <h2>맞춤 질문 만들기</h2>
-          <p className="small muted">지원 건을 고르면 위에서 선택한 자소서를 바탕으로 질문을 만들어요. 직접 입력해도 됩니다.</p>
-          <p className="small muted">위에서 연결한 지원 건을 질문 생성에도 사용해요. 아래 직접 입력은 질문을 만들 때만 쓰며 세션 기준 자료로 저장되지 않아요.</p>
-          {!applicationId && (
-            <>
-              <div className="spacer" />
-              <div className="row">
-                <label className="grow">회사<input value={gen.company} onChange={(e) => setGen({ ...gen, company: e.target.value })} /></label>
-                <label className="grow">직무<input value={gen.position} onChange={(e) => setGen({ ...gen, position: e.target.value })} /></label>
-              </div>
-              <div className="spacer" />
-              <label>자기소개서 내용<textarea value={gen.essay_text} onChange={(e) => setGen({ ...gen, essay_text: e.target.value })} /></label>
-            </>
-          )}
-          <div className="spacer" />
-          <ClassificationControls taxonomy={taxonomy} value={genClassification} onChange={setGenClassification} label="생성할 질문 분류"/>
-          <div className="row">
-            <label>개수<input type="number" min={1} max={10} value={gen.count} onChange={(e) => setGen({ ...gen, count: +e.target.value })} /></label>
-            <button className="primary" disabled={busy} onClick={generate}>질문 생성</button>
-          </div>
-        </section>
-      </div>
-
-      <section className="card">
-        <div className="row">
-          <h2 className="grow" style={{ margin: 0 }}>질문은행</h2>
-          <select value={filter.category} onChange={(e) => setFilter({ ...filter, category: e.target.value })}>
-            <option value="">전체 분류</option>
-            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-          <select value={filter.job_category} onChange={(e) => setFilter({ ...filter, job_category: e.target.value })}>
-            <option value="">전체 직무</option>
-            {JOB_CATEGORIES.map((j) => <option key={j}>{j}</option>)}
-          </select>
-          <select value={filter.source} onChange={(e) => setFilter({ ...filter, source: e.target.value })}>
-            <option value="">전체 출처</option>
-            <option value="bank">공용</option>
-            <option value="generated">맞춤</option>
-            <option value="custom">직접 추가</option>
-          </select>
-          <input placeholder="검색" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} />
-        </div>
-        <div className="spacer" />
-        <p className="small muted">지원 건을 바꾸면 질문을 다시 선택해 주세요. 지원 건을 연결하면 해당 지원 건과 공통 질문만 보여요.</p>
-        {taxonomy?.enabled&&<fieldset><legend>질문 유형·역량 필터</legend><label>질문 유형 필터<select value={tagFilter.type} onChange={e=>setTagFilter({...tagFilter,type:e.target.value})}><option value="">전체 유형</option>{taxonomy.question_types.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}</select></label><div className="row small">{taxonomy.competencies.map(c=><label className="check-label" key={c.key}><input type="checkbox" checked={tagFilter.keys.includes(c.key)} onChange={()=>setTagFilter({...tagFilter,keys:tagFilter.keys.includes(c.key)?tagFilter.keys.filter(k=>k!==c.key):[...tagFilter.keys,c.key]})}/>{c.label}</label>)}</div><label>역량 필터 조건<select value={tagFilter.match} onChange={e=>setTagFilter({...tagFilter,match:e.target.value as 'any'|'all'})}><option value="any">하나 이상 포함</option><option value="all">모두 포함</option></select></label></fieldset>}
+        {foldedFilters && <p className="small muted">Filters in More Options are on. <button className="link" onClick={clearFoldedFilters}>Clear Filters</button></p>}
         <ul className="qlist">
           {shown.map((q) => (
-            <li key={q.id} style={{flexWrap:"wrap"}}>
-              <input type="checkbox" checked={selected.includes(q.id)} onChange={() => toggle(q.id)} aria-label={`질문 선택: ${q.text}`} />
-              <span className="grow">{q.text}</span>
-              <span className="chip">{q.category}</span>
-              {q.job_category && <span className="chip">{q.job_category}</span>}
-              <span className={`chip ${q.source !== "bank" ? "accent" : ""}`}>{SOURCE_LABEL[q.source]}</span>
-              {taxonomy?.enabled&&<><span className="chip">{taxonomy.question_types.find(t=>t.key===q.question_type)?.label??'유형 미분류'}</span>{q.competency_keys?.map(k=><span className="chip" key={k}>{taxonomy.competencies.find(c=>c.key===k)?.label??k}</span>)}</>}
-              {taxonomy?.enabled&&q.source!=="bank"&&<button className="small" onClick={()=>{setEditing(editing===q.id?null:q.id);setEditTags({question_type:q.question_type,competency_keys:q.competency_keys??[]});}}>분류 편집</button>}
-              {editing===q.id&&<div style={{flexBasis:'100%'}}><ClassificationControls taxonomy={taxonomy} value={editTags} onChange={setEditTags} label="질문 분류 편집"/><p className="small muted">기존 세션의 시작 시점 분류는 바뀌지 않아요.</p><button disabled={busy} onClick={()=>run(async()=>{await api.classifyQuestion(q.id,editTags);setEditing(null);reload();})}>분류 저장</button><button onClick={()=>setEditing(null)}>취소</button></div>}
-              {q.source !== "bank" && (
-                <button className="small danger" disabled={busy} onClick={() => run(async () => { await api.deleteQuestion(q.id); reload(); })}>삭제</button>
-              )}
+            <li key={q.id}>
+              <input type="checkbox" checked={selected.includes(q.id)} onChange={() => toggle(q.id)} aria-label={`Select question: ${q.text}`} />
+              <span className="q-text" lang="ko">{q.text}</span>
+              <span className="q-end">
+                <span className="chip">{label("category", q.category)}</span>
+                {q.job_category && <span className="chip">{label("job", q.job_category)}</span>}
+                {taxonomy?.enabled&&q.source!=="bank"&&<button aria-expanded={editing===q.id} onClick={()=>{setEditing(editing===q.id?null:q.id);setEditTags({question_type:q.question_type,competency_keys:q.competency_keys??[]});}}>Edit Tags</button>}
+                {q.source !== "bank" && (
+                  <button className="danger" disabled={busy} onClick={() => run("questions", async () => { await api.deleteQuestion(q.id); reload(); })}>Delete</button>
+                )}
+              </span>
+              {editing===q.id&&<div className="q-panel"><ClassificationControls taxonomy={taxonomy} value={editTags} onChange={setEditTags} label="Tags"/><div className="row"><button disabled={busy} onClick={()=>run("questions", async()=>{await api.classifyQuestion(q.id,editTags);setEditing(null);reload();})}>Save</button><button onClick={()=>setEditing(null)}>Cancel</button></div></div>}
             </li>
           ))}
-          {shown.length === 0 && <li className="muted">질문이 없습니다.</li>}
+          {shown.length === 0 && <li className="muted">No questions match.</li>}
         </ul>
-        <div className="spacer" />
-        <ClassificationControls taxonomy={taxonomy} value={classification} onChange={setClassification} label="직접 추가할 질문 분류"/>
-        <div className="row">
-          <select value={newQ.category} onChange={(e) => setNewQ({ ...newQ, category: e.target.value as Category })}>
-            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-          <input className="grow" placeholder="질문 직접 추가" value={newQ.text} onChange={(e) => setNewQ({ ...newQ, text: e.target.value })} />
-          <button disabled={busy || newQ.text.trim().length < 2} onClick={addCustom}>추가</button>
-        </div>
-        <div className="spacer" />
-        <div className="row">
-          <span className="muted small grow">{selected.length}개 선택됨</span>
-          <button onClick={() => setSelected([])} disabled={!selected.length}>선택 해제</button>
-          <button className="primary" disabled={busy || !selected.length} onClick={startFree}>선택한 질문으로 자유 연습</button>
-        </div>
+        {adding && (
+          <fieldset className="q-panel">
+            <legend>New Question</legend>
+            <div className="row">
+              <label>Category
+                <select value={newQ.category} onChange={(e) => setNewQ({ ...newQ, category: e.target.value as Category })}>{categoryOptions}</select>
+              </label>
+              <label className="grow">Question<input value={newQ.text} onChange={(e) => setNewQ({ ...newQ, text: e.target.value })} /></label>
+            </div>
+            <ClassificationControls taxonomy={taxonomy} value={classification} onChange={setClassification} label="Tags"/>
+            <div className="row">
+              <button disabled={busy || newQ.text.trim().length < 2} onClick={addCustom}>Save</button>
+              <button onClick={() => setAdding(false)}>Cancel</button>
+            </div>
+          </fieldset>
+        )}
+        {errorAt("questions")}
+        {(!adding || selected.length > 0) && (
+          <div className="row q-foot">
+            {!adding && <button className="link" onClick={() => setAdding(true)}><span aria-hidden="true">+ </span>Add a Question</button>}
+            {selected.length > 0 && <button className="link" onClick={() => setSelected([])}>Clear Selection</button>}
+          </div>
+        )}
       </section>
-    </>
+
+      <label className="inline-field start-app">Application
+        <select value={applicationId} disabled={busy} onChange={e => setApplicationId(e.target.value)}>
+          <option value="">None</option>
+          {apps.map(a => <option key={a.id} value={a.id} lang="ko">{a.company} · {a.position}</option>)}
+        </select>
+      </label>
+      {previewError && <p className="err">{previewError}</p>}
+      <div className="row start-actions">
+        <button className="primary" disabled={busy || !selected.length} onClick={startFree}>Start Practice ({selected.length})</button>
+        <button disabled={busy || mockCats.length === 0} onClick={startMock}>Mock Interview</button>
+      </div>
+      {errorAt("start")}
+
+      <details className="card fold start-fold">
+        <summary>More Options</summary>
+        <fieldset>
+          <legend>Mock Interview</legend>
+          <div className="row">
+            <label>Number of questions<input type="number" min={1} max={20} value={mock.count} onChange={(e) => setMock({ ...mock, count: +e.target.value })} /></label>
+            <label>Prep time (sec)<input type="number" min={0} max={300} value={mock.prep_sec} onChange={(e) => setMock({ ...mock, prep_sec: +e.target.value })} /></label>
+            <label>Answer time (sec)<input type="number" min={10} max={600} value={mock.answer_sec} onChange={(e) => setMock({ ...mock, answer_sec: +e.target.value })} /></label>
+          </div>
+          <fieldset>
+            <legend>Categories</legend>
+            <div className="row small">
+              {CATEGORIES.map((c) => (
+                <label key={c} className="check-label">
+                  <input type="checkbox" checked={mockCats.includes(c)} onChange={() => setMockCats((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]))} />
+                  {label("category", c)}
+                </label>
+              ))}
+            </div>
+            {mockCats.length === 0 && <p className="err">Choose at least one category.</p>}
+          </fieldset>
+          <label>Job
+            <select value={mock.job_category} onChange={(e) => setMock({ ...mock, job_category: e.target.value })}>
+              <option value="">{label("job", "공통")}</option>
+              {jobOptions}
+            </select>
+          </label>
+        </fieldset>
+        <label>Job posting (optional)
+          <textarea value={jobDescription} maxLength={12000} onChange={(e) => setJobDescription(e.target.value)} placeholder="Paste the duties and requirements." style={{ minHeight: 80 }} />
+        </label>
+        <label>Essay version
+          <select value={essayBasis} onChange={(e) => setEssayBasis(e.target.value as "submitted" | "latest")}>
+            <option value="submitted">Submitted (latest if none)</option>
+            <option value="latest">Latest</option>
+          </select>
+        </label>
+        {preview.length > 0 && (
+          <ul className="plain small" data-testid="practice-context-preview">
+            {preview.map((e) => <li key={e.id}><span lang="ko">{e.question_text}</span> · v{e.version_no} · {e.label}</li>)}
+          </ul>
+        )}
+        <label className="check-label"><input type="checkbox" checked={followups} onChange={(e) => setFollowups(e.target.checked)} />Offer follow-up questions</label>
+        <fieldset>
+          <legend>Filters</legend>
+          <div className="row">
+            <label>Job
+              <select value={filter.job_category} onChange={(e) => setFilter({ ...filter, job_category: e.target.value })}>
+                <option value="">All Jobs</option>
+                {jobOptions}
+              </select>
+            </label>
+            <label>Source
+              <select value={filter.source} onChange={(e) => setFilter({ ...filter, source: e.target.value })}>
+                <option value="">All Sources</option>
+                {SOURCES.map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+              </select>
+            </label>
+            {taxonomy?.enabled && (
+              <label>Question type
+                <select value={tagFilter.type} onChange={e=>setTagFilter({...tagFilter,type:e.target.value})}>
+                  <option value="">All Types</option>
+                  {taxonomy.question_types.map(t=><option key={t.key} value={t.key}>{label("questionType", t.key)}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
+          {taxonomy?.enabled && (
+            <>
+              <fieldset>
+                <legend>Competencies</legend>
+                <div className="row small">
+                  {taxonomy.competencies.map(c=><label className="check-label" key={c.key}><input type="checkbox" checked={tagFilter.keys.includes(c.key)} onChange={()=>setTagFilter({...tagFilter,keys:tagFilter.keys.includes(c.key)?tagFilter.keys.filter(k=>k!==c.key):[...tagFilter.keys,c.key]})}/>{label("competency", c.key)}</label>)}
+                </div>
+              </fieldset>
+              <label>Match
+                <select value={tagFilter.match} onChange={e=>setTagFilter({...tagFilter,match:e.target.value as 'any'|'all'})}>
+                  <option value="any">Any selected competency</option>
+                  <option value="all">All selected competencies</option>
+                </select>
+              </label>
+            </>
+          )}
+        </fieldset>
+      </details>
+
+      <details className="card fold start-fold">
+        <summary>Generate Questions from an Essay</summary>
+        {applicationId ? <p className="small muted">Uses the essays from the selected application.</p> : (
+          <>
+            <div className="row">
+              <label className="grow">Company<input value={gen.company} onChange={(e) => setGen({ ...gen, company: e.target.value })} /></label>
+              <label className="grow">Role<input value={gen.position} onChange={(e) => setGen({ ...gen, position: e.target.value })} /></label>
+            </div>
+            <label>Essay<textarea value={gen.essay_text} onChange={(e) => setGen({ ...gen, essay_text: e.target.value })} /></label>
+          </>
+        )}
+        <ClassificationControls taxonomy={taxonomy} value={genClassification} onChange={setGenClassification} label="Tags for new questions"/>
+        <div className="row bottom">
+          <label>Number of questions<input type="number" min={1} max={10} value={gen.count} onChange={(e) => setGen({ ...gen, count: +e.target.value })} /></label>
+          <button disabled={busy} onClick={generate}>Generate Questions</button>
+        </div>
+        {errorAt("generate")}
+      </details>
+    </div>
   );
 }

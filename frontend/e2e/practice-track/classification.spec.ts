@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { API } from './env';
+import { label } from '../../src/features/practice-track/labels';
 test('classification controls, frozen review and accessible competency history', async ({page,request}) => {
  const observed:{method:string;path:string}[]=[];
  page.on('request',r=>{const u=new URL(r.url());if(u.pathname.startsWith('/practice/'))observed.push({method:r.method(),path:u.pathname});});
@@ -7,15 +8,36 @@ test('classification controls, frozen review and accessible competency history',
  test.skip(!taxonomy.enabled,'taxonomy schema is disabled');
  const q=await (await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`분류 접근성 질문 ${Date.now()}`}})).json();
  await page.goto('/practice');
+ const type=taxonomy.question_types[0].key, otherType=taxonomy.question_types[1].key, competency=taxonomy.competencies[0].key;
  const row=page.locator('.qlist li').filter({hasText:q.text});
- await row.getByRole('button',{name:'분류 편집'}).click();
- await row.getByLabel('질문 유형').selectOption(taxonomy.question_types[0].key);
- await row.getByLabel(taxonomy.competencies[0].label,{exact:true}).check();
- await row.getByRole('button',{name:'분류 저장'}).click();
- await expect(row).toContainText(taxonomy.question_types[0].label);
- await row.getByRole('checkbox',{name:`질문 선택: ${q.text}`,exact:true}).check();
- await page.getByRole('button',{name:'선택한 질문으로 자유 연습'}).click();
- await expect(page.getByText('시작 시점 분류',{exact:true})).toBeVisible();
+ await row.getByRole('button',{name:'Edit Tags',exact:true}).click();
+ await row.getByRole('combobox',{name:'Question type',exact:true}).selectOption(type);
+ await row.getByLabel(label('competency',competency),{exact:true}).check();
+ const saved=page.waitForResponse(r=>r.request().method()!=='GET'&&r.url().includes(`/practice/questions/${q.id}`));
+ await row.getByRole('button',{name:'Save',exact:true}).click();
+ expect((await saved).ok()).toBe(true);
+ await expect(row.getByRole('group',{name:'Tags'})).toHaveCount(0);
+ const stored=(await (await request.get(`${API}/practice/questions`)).json()).find((x:{id:string})=>x.id===q.id);
+ expect(stored).toMatchObject({question_type:type,competency_keys:[competency]});
+ // The saved tags show when the editor opens again.
+ await row.getByRole('button',{name:'Edit Tags',exact:true}).click();
+ await expect(row.getByRole('combobox',{name:'Question type',exact:true})).toHaveValue(type);
+ await expect(row.getByLabel(label('competency',competency),{exact:true})).toBeChecked();
+ await row.getByRole('button',{name:'Cancel',exact:true}).click();
+ // Question type and competency filters are folded under More Options.
+ await page.getByText('More Options',{exact:true}).click();
+ const filters=page.getByRole('group',{name:'Filters',exact:true});
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption(otherType);
+ await expect(row).toHaveCount(0);
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption(type);
+ await filters.getByLabel(label('competency',competency),{exact:true}).check();
+ await expect(row).toHaveCount(1);
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption('');
+ await filters.getByLabel(label('competency',competency),{exact:true}).uncheck();
+ await row.getByRole('checkbox',{name:`Select question: ${q.text}`,exact:true}).check();
+ await page.getByRole('button',{name:'Start Practice (1)',exact:true}).click();
+ await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
+ await expect(page.locator('.chip').filter({hasText:label('questionType',type)})).toBeVisible();
  await page.getByRole('radio',{name:'글로 답변',exact:true}).check();
  await page.getByRole('button',{name:'답변 시작',exact:true}).click();
  await page.getByLabel('내 답변',{exact:true}).fill('제가 역할을 나누고 매일 진행 상황을 공유했습니다.');
@@ -52,13 +74,19 @@ test('classification controls, frozen review and accessible competency history',
  await test.info().attach('api-call-counts.json',{body:JSON.stringify(callCounts,null,2),contentType:'application/json'});
 });
 
-test('disabled taxonomy hides editing and selection controls',async({page})=>{
+test('disabled taxonomy hides editing and selection controls',async({page,request})=>{
+ await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`분류 꺼짐 확인 ${Date.now()}`}});
  await page.route('**/practice/taxonomy',route=>route.fulfill({json:{enabled:false,taxonomy_version:'interview-v1',question_types:[],competencies:[],max_competencies:3}}));
  await page.goto('/practice');
- await expect(page.getByRole('heading',{name:'질문은행'})).toBeVisible();
- await expect(page.getByLabel('질문 유형 필터')).toHaveCount(0);
- await expect(page.getByRole('button',{name:'분류 편집'})).toHaveCount(0);
- await expect(page.getByRole('group',{name:'직접 추가할 질문 분류'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'Questions',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Delete',exact:true}).first()).toBeVisible();
+ await page.getByText('More Options',{exact:true}).click();
+ await expect(page.getByRole('group',{name:'Filters',exact:true}).getByRole('combobox',{name:'Source',exact:true})).toBeVisible();
+ await expect(page.getByLabel('Question type')).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Edit Tags'})).toHaveCount(0);
+ await page.getByRole('button',{name:'Add a Question',exact:true}).click();
+ await expect(page.getByRole('group',{name:'New Question',exact:true})).toBeVisible();
+ await expect(page.getByRole('group',{name:'Tags'})).toHaveCount(0);
 });
 
 test('legacy debrief remains readable as history and is excluded from current integrated findings', async ({page,request}) => {

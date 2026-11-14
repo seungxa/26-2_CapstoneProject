@@ -156,14 +156,15 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
   let snapshot: InterviewContext;
   await test.step("E: link from Track, choose confirmed basis and start free practice", async () => {
     await page.getByRole("button", { name: "이 지원 건으로 면접 질문 만들기", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "이번 연습에 연결할 지원 건", exact: true })).toHaveValue(applicationId);
-    await page.getByRole("combobox", { name: "자소서 기준", exact: true }).selectOption("submitted");
-    await expect(page.getByTestId("practice-context-preview")).toContainText("지원 동기 · v1 · 제출본 · 확인됨");
-    await page.getByRole("checkbox", { name: /^질문 선택:/ }).first().check();
-    await page.getByRole("button", { name: "선택한 질문으로 자유 연습", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Application", exact: true })).toHaveValue(applicationId);
+    await page.getByText("More Options", { exact: true }).click();
+    await page.getByRole("combobox", { name: "Essay version", exact: true }).selectOption("submitted");
+    await expect(page.getByTestId("practice-context-preview")).toContainText("지원 동기 · v1 · Submitted");
+    await page.getByRole("checkbox", { name: /^Select question:/ }).first().check();
+    await page.getByRole("button", { name: "Start Practice (1)", exact: true }).click();
     await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
     sessionId = new URL(page.url()).pathname.split("/")[3];
-    await expect(page.getByRole("heading", { name: "이번 면접의 기준 자료", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Practice Materials", exact: true })).toBeVisible();
     const response = await request.get(`${API}/practice/sessions/${sessionId}`);
     expect(response.ok()).toBeTruthy();
     snapshot = (await response.json()).context_snapshot;

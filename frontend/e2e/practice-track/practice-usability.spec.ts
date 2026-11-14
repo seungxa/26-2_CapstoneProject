@@ -3,14 +3,18 @@ import { API } from './env';
 
 test('one shared application source previews the context for both modes and names question selection', async ({page,request})=>{
  const app=await (await request.post(`${API}/track/applications`,{data:{company:'공통 기준 회사',position:'제품 개발'}})).json();
+ await request.post(`${API}/track/applications/${app.id}/essays`,{data:{question_text:'협업 경험',content:'합성 자소서 본문'}});
  const q=await (await request.post(`${API}/practice/questions`,{data:{category:'직무',text:`기준 확인 질문 ${Date.now()}`}})).json();
  await page.goto('/practice');
- await page.getByLabel('이번 연습에 연결할 지원 건').selectOption(app.id);
- await expect(page.getByTestId('practice-context-preview')).toContainText('공통 기준 회사');
- await expect(page.getByTestId('practice-context-preview')).toContainText('제품 개발');
- await page.getByRole('checkbox',{name:`질문 선택: ${q.text}`,exact:true}).check();
- await page.getByRole('button',{name:'선택한 질문으로 자유 연습'}).click();
- await expect(page.getByRole('heading',{name:'이번 면접의 기준 자료'})).toBeVisible();
+ const source=page.getByRole('combobox',{name:'Application',exact:true});
+ await source.selectOption(app.id);
+ await expect(source.locator('option:checked')).toHaveText('공통 기준 회사 · 제품 개발');
+ await page.getByText('More Options',{exact:true}).click();
+ await expect(page.getByTestId('practice-context-preview')).toContainText('협업 경험 · v1 · Latest');
+ await expect(page.getByTestId('practice-context-preview').locator('[lang="ko"]')).toHaveText('협업 경험');
+ await page.getByRole('checkbox',{name:`Select question: ${q.text}`,exact:true}).check();
+ await page.getByRole('button',{name:'Start Practice (1)',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Practice Materials',exact:true})).toBeVisible();
  const sid=page.url().split('/').at(-2);
  const session=await (await request.get(`${API}/practice/sessions/${sid}`)).json();
  expect(session.application_id).toBe(app.id);
@@ -48,10 +52,12 @@ test('frozen submitted source distinguishes confirmed, legacy, and missing confi
  const q=await (await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`자료 확인 ${Date.now()}`}})).json();
  const s=await (await request.post(`${API}/practice/sessions`,{data:{mode:'free',question_ids:[q.id]}})).json();
  const essay={item_id:'i',version_id:'v',question_text:'자료 상태',version_no:1,content:'합성 자소서',selection:'submitted',is_submitted:true};
- for(const [status,label] of [['confirmed','제출본 · 확인됨'],['legacy_unverified','이전 제출 표시 · 확인 전'],[undefined,'제출본 · 확인 기록 없음']] as const) {
+ for(const [status,label] of [['confirmed','v1 · Submitted'],['legacy_unverified','v1 · Marked Submitted, Unconfirmed'],[undefined,'v1 · Submitted, No Confirmation']] as const) {
   await page.route(`**/practice/sessions/${s.id}`,route=>route.request().resourceType()==='document' ? route.continue() : route.fulfill({json:{...s,context_snapshot:{company:'합성 회사',position:'합성 직무',essay_basis:'submitted',job_description:'',essays:[{...essay,submission_confirmation:status}]}}}));
   await page.goto(`/practice/sessions/${s.id}`);
-  await expect(page.locator('.source-detail summary').filter({hasText:'자료 상태'})).toContainText(label);
+  const summary=page.locator('.source-detail summary').filter({hasText:'자료 상태'});
+  await expect(summary.locator('.chip')).toHaveText(label);
+  await expect(summary.locator('[lang="ko"]')).toHaveText('자료 상태');
   await page.unroute(`**/practice/sessions/${s.id}`);
  }
 });

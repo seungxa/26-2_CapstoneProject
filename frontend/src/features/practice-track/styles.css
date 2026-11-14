@@ -210,3 +210,36 @@
 
 .practice-track.practice-track .fold { margin: 12px 0; }
 .practice-track.practice-track .fold > summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+
+/* Practice › Start: questions first, one primary action, rarely used options folded */
+.practice-track.practice-track .practice-start :is(select, textarea, input:not([type="checkbox"])) { min-width: 0; max-width: 100%; }
+.practice-track.practice-track .practice-start input[type="number"] { width: 7em; }
+.practice-track.practice-track .practice-start fieldset { min-width: 0; margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
+.practice-track.practice-track .practice-start legend { padding: 0 4px; font-weight: 700; color: var(--text); }
+.practice-track.practice-track .practice-start fieldset fieldset { margin: 12px 0 0; padding: 0; border: 0; }
+.practice-track.practice-track .practice-start fieldset fieldset > legend { padding: 0; margin-bottom: 4px; font-size: 13px; font-weight: 400; color: var(--text-2); }
+.practice-track.practice-track .practice-start fieldset > label, .practice-track.practice-track .practice-start fieldset > .row { margin-top: 10px; }
+.practice-track.practice-track .practice-start .tag-fields { margin: 10px 0 0; }
+.practice-track.practice-track .q-head { margin-bottom: 10px; }
+.practice-track.practice-track .q-head h2 { margin: 0; }
+.practice-track.practice-track .q-search { flex: 1 1 180px; }
+.practice-track.practice-track .practice-start .qlist li { flex-wrap: wrap; }
+.practice-track.practice-track .q-text { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.practice-track.practice-track .q-end { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.practice-track.practice-track .q-end button { padding: 2px 10px; font-size: 13px; }
+.practice-track.practice-track .q-panel { flex-basis: 100%; min-width: 0; margin: 8px 0 0; }
+.practice-track.practice-track .q-panel > .row { margin-top: 10px; }
+.practice-track.practice-track .q-foot { margin-top: 10px; gap: 16px; }
+.practice-track.practice-track button.link { border: 0; background: none; padding: 0; color: var(--accent); font-size: 14px; }
+.practice-track.practice-track button.link:hover:not(:disabled) { text-decoration: underline; }
+.practice-track.practice-track .inline-field { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
+.practice-track.practice-track .start-app select { background: var(--surface); }
+.practice-track.practice-track .start-actions { margin: 12px 0 16px; }
+.practice-track.practice-track .start-fold { margin: 0 0 12px; padding: 14px 18px; }
+.practice-track.practice-track .start-fold > summary { margin: 0; }
+.practice-track.practice-track .start-fold[open] > summary { margin-bottom: 14px; }
+.practice-track.practice-track .start-fold > label, .practice-track.practice-track .start-fold > .plain { margin-bottom: 14px; }
+.practice-track.practice-track .row.bottom { align-items: flex-end; }
+.practice-track.practice-track .practice-start label:not(.inline-field) > select { align-self: flex-start; }
+.practice-track.practice-track .practice-start fieldset.q-panel { margin-top: 12px; }
+.practice-track.practice-track .start-fold > .row { margin-top: 12px; }
