@@ -12,8 +12,10 @@ const FACE_LABEL: Record<FaceState, string> = {
 // Dev-only diagnostics. CAMERA_DEBUG is false in production builds, so this module is never loaded there
 const Diagnostics = CAMERA_DEBUG ? lazy(() => import("./CameraDiagnostics")) : null;
 
-/** Optional camera feedback in the interview: turn on or off, preview, and the live face state */
-export default function CameraPanel({ status, error, face, edge, diag, onEnable, onDisable, attachVideo, liveHints=true, onLiveHintsChange }: {
+/** Optional camera feedback in the interview: turn on or off, preview, and the live face state.
+ *  compact: the runner's small toggle (title, one line and the button on one row), not a card */
+export default function CameraPanel({ status, error, face, edge, diag, onEnable, onDisable, attachVideo, liveHints=true, onLiveHintsChange, compact=false }: {
+  compact?: boolean;
   liveHints?: boolean;
   onLiveHintsChange?: (enabled:boolean)=>void;
   status: CameraStatus;
@@ -26,11 +28,16 @@ export default function CameraPanel({ status, error, face, edge, diag, onEnable,
   onDisable: () => void;
   attachVideo: (el: HTMLVideoElement | null) => void;
 }) {
+  const on = status === "on";
+  const turnOn = <button disabled={status === "starting"} onClick={onEnable}>{status === "starting" ? "Starting Camera…" : "Turn On Camera"}</button>;
   return (
-    <section className="card camera-panel">
-      <h2>Camera Feedback</h2>
-      <p className="small muted">Optional. Video stays on this device.</p>
-      {status === "on" ? (
+    <section className={compact ? `camera-panel compact${on ? " on" : ""}` : "card camera-panel"}>
+      <div className="camera-head">
+        <h2>Camera Feedback</h2>
+        <p className="small muted">Optional. Video stays on this device.</p>
+        {compact && !on && turnOn}
+      </div>
+      {on ? (
         <div className="row camera-live">
           <video ref={attachVideo} className="camera-preview" autoPlay muted playsInline aria-label="Camera preview" />
           <div className="grow">
@@ -42,7 +49,7 @@ export default function CameraPanel({ status, error, face, edge, diag, onEnable,
         </div>
       ) : <>
         {error && <p className="warn-text" role="alert">{error}</p>}
-        <button disabled={status === "starting"} onClick={onEnable}>{status === "starting" ? "Starting Camera…" : "Turn On Camera"}</button>
+        {!compact && turnOn}
       </>}
       <details className="fold">
         <summary>Details</summary>

@@ -164,7 +164,9 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     await page.getByRole("button", { name: "Start Practice (1)", exact: true }).click();
     await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
     sessionId = new URL(page.url()).pathname.split("/")[3];
-    await expect(page.getByRole("heading", { name: "Practice Materials", exact: true })).toBeVisible();
+    // The runner shows the linked application in one line, with no materials card
+    await expect(page.getByTestId("runner-application")).toHaveText(`${company} · ${position}`);
+    await expect(page.getByRole("heading", { name: "Practice Materials", exact: true })).toHaveCount(0);
     const response = await request.get(`${API}/practice/sessions/${sessionId}`);
     expect(response.ok()).toBeTruthy();
     snapshot = (await response.json()).context_snapshot;
@@ -196,6 +198,11 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     const after = await (await request.get(`${API}/practice/sessions/${sessionId}`)).json();
     expect(after.context_snapshot).toEqual(snapshot!);
     await page.goto(`/practice/sessions/${sessionId}/run`);
+    // The runner keeps the company name frozen at start
+    await expect(page.getByTestId("runner-application")).toHaveText(`${company} · ${position}`);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    // The frozen essays are shown with the review
+    await page.goto(`/practice/sessions/${sessionId}`);
     const sources = page.locator(".source-context");
     await expect(sources).toContainText(`${company} · ${position}`);
     await sources.locator("summary").filter({ hasText: essays[0].question }).click();

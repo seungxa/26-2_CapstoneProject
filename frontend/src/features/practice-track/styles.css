@@ -243,3 +243,37 @@
 .practice-track.practice-track .practice-start label:not(.inline-field) > select { align-self: flex-start; }
 .practice-track.practice-track .practice-start fieldset.q-panel { margin-top: 12px; }
 .practice-track.practice-track .start-fold > .row { margin-top: 12px; }
+
+/* Interview runner: header, the question, one primary action, then Record/Type and the camera toggle */
+.practice-track.practice-track .runner-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.practice-track.practice-track .runner-head h1 { margin: 0; }
+/* On a narrow screen End Practice wraps to its own line, kept at the right */
+.practice-track.practice-track .runner-head > a { margin-left: auto; }
+.practice-track.practice-track a.btn { display: inline-block; color: var(--text); }
+.practice-track.practice-track a.btn:hover { text-decoration: none; border-color: var(--accent); }
+.practice-track.practice-track a.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.practice-track.practice-track .runner-app { margin: 4px 0 0; overflow-wrap: anywhere; }
+.practice-track.practice-track .runner-card { margin-top: 16px; }
+.practice-track.practice-track .runner-q { overflow-wrap: anywhere; }
+.practice-track.practice-track .runner-main { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.practice-track.practice-track .runner-main p { margin: 0; }
+.practice-track.practice-track .runner-main > .row { justify-content: center; }
+.practice-track.practice-track .field { display: flex; flex-direction: column; gap: 4px; }
+.practice-track.practice-track .runner-main > .field { align-self: stretch; text-align: left; }
+.practice-track.practice-track .runner-main .level { align-self: stretch; max-width: 360px; width: 100%; margin: 0 auto; }
+.practice-track.practice-track .runner-review { display: flex; flex-direction: column; gap: 12px; }
+.practice-track.practice-track .runner-review p { margin: 0; }
+.practice-track.practice-track .runner-review > .card { margin: 0; }
+.practice-track.practice-track .runner-error { margin: 12px 0 0; }
+.practice-track.practice-track .runner-main + .runner-error { text-align: center; }
+.practice-track.practice-track .runner-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 28px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.practice-track.practice-track .runner-tools .input-choice { margin: 0; }
+.practice-track.practice-track .runner-tools .camera-panel { flex: 1 1 280px; min-width: 0; }
+.practice-track.practice-track .runner-tools .camera-panel.on { flex-basis: 100%; }
+.practice-track.practice-track .runner-card .card { background: var(--bg); }
+.practice-track.practice-track .runner-card > .card { margin: 16px 0 0; }
+.practice-track.practice-track .camera-panel.compact .camera-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.practice-track.practice-track .camera-panel.compact h2 { font-size: 16px; margin: 0; }
+.practice-track.practice-track .camera-panel.compact .camera-head p { margin: 0; }
+.practice-track.practice-track .camera-panel.compact .fold { margin: 6px 0 0; font-size: 13px; }
+.practice-track.practice-track .camera-panel.compact .fold > summary { font-weight: 400; color: var(--text-2); margin-bottom: 4px; }

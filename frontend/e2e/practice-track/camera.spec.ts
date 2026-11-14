@@ -26,12 +26,12 @@ const liveCameraTracks = (page: Page) => page.evaluate(() =>
   (window as unknown as { __cameraStreams: MediaStream[] }).__cameraStreams.flatMap((s) => s.getTracks()).filter((t) => t.readyState === "live").length);
 
 async function answerByTextAndFinish(page: Page, waitMs = 0) {
-  await page.getByRole("radio", { name: "글로 답변" }).check();
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
-  await page.getByLabel("내 답변", { exact: true }).fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
+  await page.getByRole("radio", { name: "Type", exact: true }).check();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
   if (waitMs) await page.waitForTimeout(waitMs); // 고개 방향 기준을 잡을 만큼 표본을 모은다(초당 4회)
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
-  await page.getByRole("button", { name: "면접 마치고 회고 보기" }).click();
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page.getByRole("heading", { name: "다음 연습으로 연결하기" })).toBeVisible();
 }
 const cameraHeading = (page: Page) => page.getByRole("heading", { name: "카메라 자세 분석" });
@@ -69,11 +69,11 @@ test("camera analysis measures during the answer, shows numbers in review, and k
   await page.getByRole("checkbox", {name:"Show live hints"}).check();
   const consent=page.getByRole("button",{name:"Agree & Start"});
   if(await consent.count()) await consent.click();
-  else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
+  else await page.getByRole("button",{name:"Start Answer",exact:true}).click();
   await page.waitForTimeout(4000);
-  await page.getByRole("button",{name:"답변 끝내기"}).click();
-  await page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요").fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
-  await page.getByRole("button",{name:"면접 마치고 회고 보기"}).click();
+  await page.getByRole("button",{name:"Finish Answer"}).click();
+  await page.getByLabel("Transcript (editable)").fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
+  await page.getByRole("button",{name:"Finish & Review"}).click();
   await expect(page.getByRole("heading",{name:"다음 연습으로 연결하기"})).toBeVisible();
   // 회고로 넘어가면(면접 화면을 떠나면) 카메라를 놓는다
   expect(await liveCameraTracks(page)).toBe(0);
@@ -149,11 +149,11 @@ test("edge-top: face partly outside is shown as detected, not as not-found", asy
 
   const consent=page.getByRole("button",{name:"Agree & Start"});
   if(await consent.count()) await consent.click();
-  else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
+  else await page.getByRole("button",{name:"Start Answer",exact:true}).click();
   await page.waitForTimeout(1500);
-  await page.getByRole("button",{name:"답변 끝내기"}).click();
-  await page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요").fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
-  await page.getByRole("button",{name:"면접 마치고 회고 보기"}).click();
+  await page.getByRole("button",{name:"Finish Answer"}).click();
+  await page.getByLabel("Transcript (editable)").fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
+  await page.getByRole("button",{name:"Finish & Review"}).click();
   const row = page.locator(".video-report tbody tr td");
   await expect(row.nth(3)).toHaveText("100%"); // 얼굴 검출
   await expect(row.nth(4)).toHaveText("0초"); // 찾지 못한 시간
@@ -174,12 +174,12 @@ test("failed recording uploads never publish camera or voice reports", async ({p
  await page.goto(`/practice/sessions/${session.id}/run`);
  await page.getByRole("button",{name:"Turn On Camera"}).click();
  const consent=page.getByRole("button",{name:"Agree & Start"});
- if(await consent.count()) await consent.click(); else await page.getByRole("button",{name:"답변 시작",exact:true}).click();
+ if(await consent.count()) await consent.click(); else await page.getByRole("button",{name:"Start Answer",exact:true}).click();
  await page.waitForTimeout(1200);
  await page.route("**/practice/answers/*/audio",route=>route.fulfill({status:503,json:{detail:"테스트 저장 실패"}}));
- await page.getByRole("button",{name:"답변 끝내기"}).click();
+ await page.getByRole("button",{name:"Finish Answer"}).click();
  await expect(page.getByRole("alert")).toContainText("테스트 저장 실패");
- await page.getByRole("link",{name:"지금까지 저장한 답변 보기"}).click();
+ await page.getByRole("link",{name:"End Practice"}).click();
  await expect(page.getByRole("heading",{name:"통합 코칭"})).toBeVisible();
  await expect(page.locator(".video-report")).toHaveCount(0);
  await expect(page.getByRole("heading",{name:"음성 전달 관찰"})).toHaveCount(0);

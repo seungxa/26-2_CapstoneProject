@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { api } from "../api";
 import type { PracticeSettings } from "../types";
@@ -7,18 +7,21 @@ const SETTINGS_PATH = "/practice/settings";
 
 /** Recording consent asked once, right before the first recording. Three lines; the rest is on Settings.
  *  The keep-audio box starts from the current setting (initialKeepAudio) and is sent only when the user changes it,
- *  so agreeing again never resets the setting. */
+ *  so agreeing again never resets the setting.
+ *  transcription=false (the server can't transcribe): the lines say what really happens, so they never promise a transcript. */
 export default function ConsentPanel({
   retentionDays = 30,
   initialKeepAudio = false,
   notice,
   buttonLabel = "Agree & Start",
+  transcription = true,
   onConsented,
 }: {
   retentionDays?: number;
   initialKeepAudio?: boolean;
   notice?: string | null;
   buttonLabel?: string;
+  transcription?: boolean;
   onConsented: (s: PracticeSettings) => void;
 }) {
   const [keepAudio, setKeepAudio] = useState(initialKeepAudio);
@@ -27,6 +30,7 @@ export default function ConsentPanel({
   const [err, setErr] = useState<string | null>(null);
   // Settings already shows the details, so the card doesn't link to the page it is on
   const onSettings = useLocation().pathname === SETTINGS_PATH;
+  const newTabNote = useId();
 
   useEffect(() => {
     if (!touched) setKeepAudio(initialKeepAudio);
@@ -50,8 +54,13 @@ export default function ConsentPanel({
       {notice && <p className="warn-text">{notice}</p>}
       <ul className="bullets">
         <li>Your voice is recorded while you answer.</li>
-        <li>It's transcribed on our server, not by other services.</li>
-        <li>The audio is deleted after transcription unless you keep it.</li>
+        {transcription ? <>
+          <li>It's transcribed on our server, not by other services.</li>
+          <li>The audio is deleted after transcription unless you keep it.</li>
+        </> : <>
+          <li>It's saved on our server, not sent to other services.</li>
+          <li>The audio is deleted after {retentionDays} days.</li>
+        </>}
       </ul>
       <label className="check-label">
         <input
@@ -68,7 +77,10 @@ export default function ConsentPanel({
       <div className="row">
         <button className="primary" disabled={busy} onClick={agree}>{buttonLabel}</button>
         {/* New tab: leaving the interview here would drop a recording that is still waiting to be saved */}
-        {!onSettings && <Link to={SETTINGS_PATH} target="_blank" rel="noopener">Details</Link>}
+        {!onSettings && <>
+          <Link to={SETTINGS_PATH} target="_blank" rel="noopener" aria-describedby={newTabNote}>Details</Link>
+          <span id={newTabNote} hidden>Opens in a new tab</span>
+        </>}
       </div>
       {err && <p className="err">{err}</p>}
     </section>

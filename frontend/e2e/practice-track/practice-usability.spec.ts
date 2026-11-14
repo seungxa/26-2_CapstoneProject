@@ -14,7 +14,7 @@ test('one shared application source previews the context for both modes and name
  await expect(page.getByTestId('practice-context-preview').locator('[lang="ko"]')).toHaveText('협업 경험');
  await page.getByRole('checkbox',{name:`Select question: ${q.text}`,exact:true}).check();
  await page.getByRole('button',{name:'Start Practice (1)',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Practice Materials',exact:true})).toBeVisible();
+ await expect(page.getByTestId('runner-application')).toHaveText('공통 기준 회사 · 제품 개발');
  const sid=page.url().split('/').at(-2);
  const session=await (await request.get(`${API}/practice/sessions/${sid}`)).json();
  expect(session.application_id).toBe(app.id);

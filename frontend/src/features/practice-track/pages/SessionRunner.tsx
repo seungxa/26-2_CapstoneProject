@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ApiError, api } from "../api";
 import { FrozenClassification } from "../components/ClassificationControls";
 import { saveVoiceSegment, clearVoiceSegment, type DeliverySummary } from "../delivery/voice";
 import CameraPanel from "../components/CameraPanel";
 import ConsentPanel from "../components/ConsentPanel";
-import InterviewContext from "../components/InterviewContext";
 import { useFaceAnalysis } from "../components/useFaceAnalysis";
 import { useRecorder } from "../components/useRecorder";
-import type { PracticeAnswer, PracticeSession, PracticeSettings } from "../types";
+import { label } from "../labels";
+import { transcriptionNotice } from "../sttText";
+import type { PracticeAnswer, PracticeSession, PracticeSettings, SttStatus } from "../types";
 import { saveVideoSegment, clearVideoSegment, type SegmentSummary } from "../video/metrics";
 
 type Phase = "ready" | "prep" | "answer" | "uploading" | "reviewing";
@@ -34,6 +35,10 @@ export default function SessionRunner() {
   const [prefs, setPrefs] = useState<PracticeSettings | null>(null);
   // 서버가 403(동의 없음)을 돌려준 동작. 동의하면 이어서 다시 한다
   const [consentFor, setConsentFor] = useState<"upload" | "transcribe" | null>(null);
+  // 전사 상태: 꺼져 있거나 고장이면 녹음 버튼 바로 아래에 한 줄로 알린다. 못 불러오면 아무것도 말하지 않는다
+  const [stt, setStt] = useState<SttStatus | null>(null);
+  // 답변 입력란과 그 이름. 이름은 for로 잇는다(입력란을 label로 감싸면 초기 값이 이름에 섞인다)
+  const answerField = useId();
   const rec = useRecorder();
   const { start, stop, ensureStream } = rec;
   // 선택 기능. 꺼져 있거나 실패해도 아래 흐름은 그대로다(답변 시작·끝에서 기록 구간만 알린다)
@@ -60,6 +65,12 @@ export default function SessionRunner() {
     }).catch((e) => setErr(e.message));
     return () => { alive = false; };
   }, [id, nav]);
+
+  useEffect(() => {
+    let alive = true;
+    api.health().then((h) => { if (alive) setStt(h.stt); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   /** 설정을 불러온다. 못 불러와도 연습은 막지 않는다(업로드가 403이면 그때 동의를 받는다). */
   const loadPrefs = useCallback(() => api.settings().then((st) => { setPrefs(st); return st; }), []);
@@ -92,7 +103,7 @@ export default function SessionRunner() {
       if (inputMode === "audio") {
         pendingAudio.current ??= await stop();
         const recording = pendingAudio.current;
-        if (!recording?.blob.size) throw new Error("녹음된 소리가 없어요. 글로 답변하거나 다시 녹음해 주세요.");
+        if (!recording?.blob.size) throw new Error("No sound was recorded. Check your microphone, or choose Type Instead to write your answer.");
         saved = await api.uploadAudio(answer.id, recording.blob, recording.durationSec);
         // Only a successful saved recording revision may own browser-only reports.
         clearVideoSegment(id,answer.id); clearVoiceSegment(id,answer.id);
@@ -195,8 +206,19 @@ export default function SessionRunner() {
     finally { processing.current = false; setBusy(false); }
   };
 
+  /** 다음으로 넘어가지 않고 이 답변만 저장한다 */
+  const saveOnly = async () => {
+    if (!answer || processing.current) return;
+    processing.current = true;
+    setBusy(true); setErr(null);
+    try { updateAnswer(await api.reflect(answer.id, { transcript: draft.trim(), input_mode: inputMode === "text" ? "text" : "transcript" })); }
+    catch (e) { setErr((e as Error).message); }
+    finally { processing.current = false; setBusy(false); }
+  };
+
   const consentPanel = (notice: string | null, buttonLabel: string, then: () => void) => (
     <ConsentPanel retentionDays={prefs?.retention_days} initialKeepAudio={prefs?.keep_audio} notice={notice} buttonLabel={buttonLabel}
+      transcription={stt?.available ?? true}
       onConsented={(st) => { setPrefs(st); setConsent("ok"); setConsentFor(null); setErr(null); then(); }} />
   );
 
@@ -226,69 +248,88 @@ export default function SessionRunner() {
     finally { processing.current = false; setBusy(false); }
   };
 
-  if (err && !session) return <p className="err">{err}</p>;
-  if (!session || consent === "checking") return <p className="muted">불러오는 중…</p>;
-  if (!answer) return <div className="card"><Link to={`/practice/sessions/${id}`}>답변 다시 보기</Link></div>;
-  return <>
-    <div className="row"><h1 className="grow">{session.title}</h1><span className="muted">{idx + 1} / {session.answers.length}</span></div>
-    <InterviewContext context={session.context_snapshot} />
-    <CameraPanel liveHints={liveHints} onLiveHintsChange={setLiveHints} status={cam.status} error={cam.error} face={cam.face} edge={cam.edge} diag={cam.diag} onEnable={() => void cam.enable()} onDisable={cam.disable} attachVideo={cam.attachVideo} />
-    <section className="card">
-      <div className="row small"><span className="chip">{answer.question.category}</span>{mock && <span className="chip accent">모의시험</span>}{answer.parent_answer_id && <span className="chip accent">꼬리질문</span>}</div>
-      <FrozenClassification snapshot={answer.question_classification}/>
+  if (err && !session) return <p className="err" role="alert">{err}</p>;
+  if (!session || consent === "checking") return <p className="muted" role="status">Loading…</p>;
+  if (!answer) return <div className="card"><Link to={`/practice/sessions/${id}`}>See Review</Link></div>;
+  // 녹음으로 답하려면 먼저 동의해야 한다: 그동안 주 버튼은 기다리고, 동의 카드의 버튼이 주 동작이다
+  const needsConsent = inputMode === "audio" && consent === "needed";
+  const notice = inputMode === "audio" && stt ? transcriptionNotice(stt) : null;
+  const ctx = session.context_snapshot;
+  const application = ctx?.company ? [ctx.company, ctx.position].filter(Boolean).join(" · ") : null;
+  // 시작 시점 분류(Tags)가 이미 Follow-up을 보이면 칩을 하나 더 달지 않는다
+  const followupChip = !!answer.parent_answer_id && answer.question_classification?.question_role !== "followup";
+  const phaseLine = [inputMode === "audio" && "Recording", mock && "Time left"].filter(Boolean).join(" · ");
+  const answerLabel = inputMode === "audio" && answer.recorded_at ? "Transcript (editable)" : "Your answer";
+  const retrySave = uploadFailed && consentFor !== "upload";
+  const typeInstead = inputMode === "audio" && (uploadFailed || !answer.recorded_at);
+  return <div className="runner">
+    <header className="runner-head">
+      <h1>Question {idx + 1} of {session.answers.length}</h1>
+      <Link className="btn" aria-disabled={busy} onClick={event => { if (busy || processing.current) event.preventDefault(); }} to={`/practice/sessions/${id}`}>End Practice</Link>
+    </header>
+    {application && <p className="runner-app small muted" data-testid="runner-application" lang="ko">{application}</p>}
+    <section className="card runner-card">
+      <div className="row small">
+        <span className="chip">{label("category", answer.question.category)}</span>
+        {mock && <span className="chip accent">Mock Interview</span>}
+        {followupChip && <span className="chip accent">Follow-up</span>}
+        <FrozenClassification snapshot={answer.question_classification}/>
+      </div>
       {answer.followup_reason && <p className="followup-reason">{answer.followup_reason}</p>}
-      <div className="runner-q">{answer.question.text}</div>
-      {phase === "ready" && <>
-        <div className="row input-choice">
-          <label className="check-label"><input type="radio" name="input-mode" checked={inputMode === "audio"} onChange={() => setInputMode("audio")} />녹음으로 답변</label>
-          <label className="check-label"><input type="radio" name="input-mode" checked={inputMode === "text"} onChange={() => setInputMode("text")} />글로 답변</label>
+      <div className="runner-q" lang="ko">{answer.question.text}</div>
+      {phase === "ready" && <div className="runner-main">
+        <div className="timer">{fmt(mock ? session.answer_sec : 0)}</div>
+        <div className="row">
+          <button className={needsConsent ? undefined : "primary"} disabled={startingUi || needsConsent} onClick={beginQuestion}>Start Answer</button>
+          <button disabled={busy} onClick={() => next(false, false)}>Skip</button>
         </div>
-        {inputMode === "audio" && consent === "needed" ? <>
-          {consentPanel(null, "Agree & Start", () => void beginQuestion())}
-          <div className="row"><button disabled={busy} onClick={() => next(false, false)}>건너뛰기</button></div>
-        </> : <div className="row"><button className="primary" disabled={startingUi} onClick={beginQuestion}>답변 시작</button><button disabled={busy} onClick={() => next(false, false)}>건너뛰기</button></div>}
-      </>}
-      {phase === "prep" && <><p className="phase">답변 준비 시간</p><div className="timer">{fmt(left)}</div><button className="primary" onClick={beginAnswer}>바로 답변 시작</button></>}
-      {phase === "answer" && <>
-        <p className="phase">{inputMode === "audio" ? "녹음 중" : "답변 작성 중"} · {mock ? "남은 시간" : "경과 시간"}</p><div className="timer">{fmt(left)}</div>
-        {inputMode === "audio" ? <div className="level" aria-label="마이크 입력 레벨"><div style={{ width: `${rec.level * 100}%` }} /></div> :
-          <label>내 답변<textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="질문에 대한 답변을 적어 주세요." /></label>}
-        <div className="spacer" /><button className="primary" onClick={finishAnswer}>답변 끝내기</button>
-      </>}
-      {phase === "uploading" && <p role="status">답변을 저장하는 중…</p>}
-      {phase === "reviewing" && <>
+        {notice && <p className="small warn-text">{notice}</p>}
+      </div>}
+      {phase === "prep" && <div className="runner-main">
+        <p className="phase">Prep time</p>
+        <div className="timer">{fmt(left)}</div>
+        <div className="row"><button className="primary" onClick={beginAnswer}>Start Now</button></div>
+      </div>}
+      {phase === "answer" && <div className="runner-main">
+        {phaseLine && <p className="phase">{phaseLine}</p>}
+        <div className="timer">{fmt(left)}</div>
+        {inputMode === "audio" ? <div className="level" role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(rec.level * 100)}><div style={{ width: `${rec.level * 100}%` }} /></div> :
+          <div className="field"><label htmlFor={answerField}>Your answer</label><textarea id={answerField} autoFocus lang="ko" value={draft} onChange={(e) => setDraft(e.target.value)} /></div>}
+        <div className="row"><button className="primary" onClick={finishAnswer}>Finish Answer</button></div>
+      </div>}
+      {phase === "uploading" && <p className="runner-main" role="status">Saving your answer…</p>}
+      {phase === "reviewing" && <div className="runner-review">
         {answer.audio_available && answer.stt_status !== "done" && <div className="row small">
-          <p className="muted grow">{answer.stt_status === "failed" ? "말소리를 인식하지 못했거나 전사 요청이 실패했어요. 녹음은 보관되어 있어요." : "자동 음성 인식이 연결되지 않았어요. 녹음을 보관하고 있으니 직접 입력하거나 연결 후 다시 시도할 수 있어요."}
-            {prefs && ` 원본은 ${prefs.retention_days}일이 지나면 자동으로 지워져요.`}</p>
-          <button disabled={busy || uploadFailed} onClick={retranscribe}>음성 인식 다시 시도</button>
+          <p className="warn-text grow">{answer.stt_status === "failed" ? "Couldn't transcribe this recording. Type your answer below, or retry." : "This recording wasn't transcribed. Type your answer below."}</p>
+          <button disabled={busy || uploadFailed} onClick={retranscribe}>Retry Transcription</button>
         </div>}
-        {answer.recorded_at && answer.audio_deleted_at && <p className="small muted">
-          {answer.transcript?.trim() ? "원본 녹음은 지웠어요. 전사문만 남겨요." : "원본 녹음은 지웠어요. 답변을 직접 입력해 주세요."}</p>}
+        {answer.recorded_at && answer.audio_deleted_at && !answer.transcript?.trim() && <p className="small warn-text">The recording was deleted. Type your answer below.</p>}
         {consentFor === "upload" && uploadFailed && consentPanel("Agree first to save the answer you just recorded.", "Agree & Save Recording", () => void finishAnswer())}
         {/* 다시 전사할 원본이 있을 때만 묻는다(글 답변이거나 원본을 지웠으면 동의해도 할 일이 없다) */}
         {consentFor === "transcribe" && answer.audio_available && consentPanel("Agree first to transcribe this answer again.", "Agree & Retry Transcription", () => void retranscribe())}
-        <label>답변 확인 · 전사문을 고칠 수 있어요<textarea disabled={busy} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="녹음의 전사문이 없으면 답변을 직접 입력해 주세요." /></label>
-        <p className="small muted">확인한 답변을 저장하고 다음 단계로 진행해요.</p>
-        {uploadFailed && consentFor !== "upload" && <button onClick={finishAnswer}>녹음 저장 다시 시도</button>}
-        {inputMode === "audio" && (uploadFailed || !answer.recorded_at) && <button onClick={() => {
-          pendingAudio.current = null; pendingVideo.current=null; clearVideoSegment(id,answer.id);clearVoiceSegment(id,answer.id); setUploadFailed(false); setInputMode("text"); setErr(null); setConsentFor(null);
-        }}>녹음 대신 글로 답변</button>}
+        <div className="field"><label htmlFor={answerField}>{answerLabel}</label><textarea id={answerField} lang="ko" disabled={busy} value={draft} onChange={(e) => setDraft(e.target.value)} /></div>
         <div className="row">
-          <button disabled={busy || uploadFailed || !draft.trim()} onClick={async () => {
-            if (processing.current) return;
-            processing.current = true;
-            setBusy(true); setErr(null);
-            try { updateAnswer(await api.reflect(answer.id, { transcript: draft.trim(), input_mode: inputMode === "text" ? "text" : "transcript" })); }
-            catch (e) { setErr((e as Error).message); }
-            finally { processing.current = false; setBusy(false); }
-          }}>답변만 저장</button>
-          {session.followups_enabled && !answer.parent_answer_id && <button className="primary" disabled={busy || uploadFailed || !draft.trim()} onClick={() => next(true)}>꼬리질문 받기</button>}
-          <button disabled={busy || uploadFailed} onClick={() => next()}>{idx + 1 < session.answers.length ? "다음 질문" : "면접 마치고 회고 보기"}</button>
+          <button className="primary" disabled={busy || uploadFailed} onClick={() => next()}>{idx + 1 < session.answers.length ? "Next Question" : "Finish & Review"}</button>
+          {session.followups_enabled && !answer.parent_answer_id && <button disabled={busy || uploadFailed || !draft.trim()} onClick={() => next(true)}>Ask a Follow-up</button>}
+          <button className="link" disabled={busy || uploadFailed || !draft.trim()} onClick={saveOnly}>Save Answer</button>
         </div>
-        {busy && <p className="small muted" role="status">답변을 확인하고 다음 질문을 준비하는 중…</p>}
-      </>}
-      {(rec.error || err) && <p className="err" role="alert">{err || rec.error}</p>}
+        {(retrySave || typeInstead) && <div className="row">
+          {retrySave && <button onClick={finishAnswer}>Retry Saving Recording</button>}
+          {typeInstead && <button onClick={() => {
+            pendingAudio.current = null; pendingVideo.current=null; clearVideoSegment(id,answer.id);clearVoiceSegment(id,answer.id); setUploadFailed(false); setInputMode("text"); setErr(null); setConsentFor(null);
+          }}>Type Instead</button>}
+        </div>}
+        {busy && <p className="small muted" role="status">One moment…</p>}
+      </div>}
+      {(rec.error || err) && <p className="err runner-error" role="alert">{err || rec.error}</p>}
+      <div className="runner-tools">
+        {phase === "ready" && <div className="row input-choice" role="radiogroup" aria-label="Answer by">
+          <label className="check-label"><input type="radio" name="input-mode" checked={inputMode === "audio"} onChange={() => setInputMode("audio")} />Record</label>
+          <label className="check-label"><input type="radio" name="input-mode" checked={inputMode === "text"} onChange={() => setInputMode("text")} />Type</label>
+        </div>}
+        <CameraPanel compact liveHints={liveHints} onLiveHintsChange={setLiveHints} status={cam.status} error={cam.error} face={cam.face} edge={cam.edge} diag={cam.diag} onEnable={() => void cam.enable()} onDisable={cam.disable} attachVideo={cam.attachVideo} />
+      </div>
+      {phase === "ready" && needsConsent && consentPanel(null, "Agree & Start", () => void beginQuestion())}
     </section>
-    <Link className="small" aria-disabled={busy} onClick={event => { if (busy || processing.current) event.preventDefault(); }} to={`/practice/sessions/${id}`}>지금까지 저장한 답변 보기</Link>
-  </>;
+  </div>;
 }

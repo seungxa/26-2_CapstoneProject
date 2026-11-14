@@ -22,7 +22,7 @@ export function useRecorder() {
     try {
       s = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      if (mounted.current) setError("마이크 권한이 필요합니다. 브라우저 주소창의 권한 설정을 확인하세요.");
+      if (mounted.current) setError("Can't use the microphone. Allow microphone access in your browser's address bar, then try again.");
       throw new Error("mic");
     }
     if (!mounted.current) {

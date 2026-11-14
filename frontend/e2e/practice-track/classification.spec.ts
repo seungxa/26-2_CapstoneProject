@@ -38,11 +38,11 @@ test('classification controls, frozen review and accessible competency history',
  await page.getByRole('button',{name:'Start Practice (1)',exact:true}).click();
  await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
  await expect(page.locator('.chip').filter({hasText:label('questionType',type)})).toBeVisible();
- await page.getByRole('radio',{name:'글로 답변',exact:true}).check();
- await page.getByRole('button',{name:'답변 시작',exact:true}).click();
- await page.getByLabel('내 답변',{exact:true}).fill('제가 역할을 나누고 매일 진행 상황을 공유했습니다.');
- await page.getByRole('button',{name:'답변 끝내기'}).click();
- await page.getByRole('button',{name:'면접 마치고 회고 보기'}).click();
+ await page.getByRole('radio',{name:'Type',exact:true}).check();
+ await page.getByRole('button',{name:'Start Answer',exact:true}).click();
+ await page.getByLabel('Your answer',{exact:true}).fill('제가 역할을 나누고 매일 진행 상황을 공유했습니다.');
+ await page.getByRole('button',{name:'Finish Answer'}).click();
+ await page.getByRole('button',{name:'Finish & Review'}).click();
  await expect(page.getByRole('heading',{name:'통합 코칭'})).toBeVisible();
  const reviewStart=observed.length;
  await expect(page.getByRole('heading',{name:'연습 역량과 관찰 근거'})).toBeVisible();

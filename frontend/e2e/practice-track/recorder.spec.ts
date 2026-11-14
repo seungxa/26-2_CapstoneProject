@@ -38,7 +38,7 @@ test("permission granted after leaving the interview releases the microphone at 
   await holdMicrophone(page);
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
   await expect.poll(async () => (await mic(page)).calls).toBe(1);
   await page.locator(".practice-track").getByRole("link", { name: "Settings", exact: true }).click(); // 권한 응답 전에 면접 화면을 떠난다
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
@@ -51,13 +51,13 @@ test("clicking start twice while asking asks once and records once", async ({ pa
   await holdMicrophone(page);
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  const start = page.getByRole("button", { name: "답변 시작", exact: true });
+  const start = page.getByRole("button", { name: "Start Answer", exact: true });
   await start.click();
   await expect(start).toBeDisabled(); // 권한을 묻는 동안은 다시 누를 수 없다
   await start.dispatchEvent("click"); // 그래도 이벤트가 들어오면 무시한다
   await page.waitForTimeout(300);
   await grant(page);
-  await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
   const m = await mic(page);
   expect(m.calls).toBe(1);
   expect(m.live).toBe(1);
@@ -72,8 +72,8 @@ test("optional audio analysis failure does not prevent recording or saving an an
   });
   const session = await seed(request);
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
-  await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
   // Free mode briefly starts with the configured answer limit before its elapsed
   // timer ticks. That limit is not proof that audio has actually been captured.
   await expect.poll(async () => {
@@ -82,7 +82,7 @@ test("optional audio analysis failure does not prevent recording or saving an an
     return elapsed >= 2 && elapsed < session.answer_sec;
   }).toBe(true);
   const saved = page.waitForResponse((r) => r.url().endsWith(`/practice/answers/${session.answers[0].id}/audio`) && r.request().method() === "POST");
-  await page.getByRole("button", { name: "답변 끝내기", exact: true }).click();
+  await page.getByRole("button", { name: "Finish Answer", exact: true }).click();
   const response = await saved;
   expect(response.status()).toBe(200);
   expect((await response.json()).recorded_at).toBeTruthy();

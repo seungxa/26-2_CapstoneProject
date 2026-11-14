@@ -34,21 +34,23 @@ test("submitted source → text answer → follow-up → evidence review → foc
   await generate.getByRole("spinbutton").fill("1");
   await generate.getByRole("button", { name: "Generate Questions", exact: true }).click();
   await page.getByRole("button", { name: "Start Practice (1)", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Practice Materials" })).toBeVisible();
-  await page.locator(".source-detail summary").first().click();
-  await expect(page.locator(".evidence-text").first()).toContainText("40%");
-  await expect(page.locator(".evidence-text").first()).not.toContainText("70%");
-  await page.getByRole("radio", { name: "글로 답변" }).check();
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
-  await page.getByLabel("내 답변", { exact: true }).fill("프로젝트에서 제가 개선했습니다.");
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
-  await page.getByRole("button", { name: "꼬리질문 받기" }).click();
+  // The runner names the linked application in one line. The frozen essay basis is checked through the session
+  await expect(page.getByTestId("runner-application")).toHaveText("검증용 소프트웨어 · 백엔드 개발자");
+  await expect(page.getByRole("heading", { name: "Practice Materials" })).toHaveCount(0);
+  const started = await (await request.get(`${API}/practice/sessions/${page.url().split("/").at(-2)}`)).json();
+  expect(started.context_snapshot.essays[0].content).toContain("40%");
+  expect(started.context_snapshot.essays[0].content).not.toContain("70%");
+  await page.getByRole("radio", { name: "Type", exact: true }).check();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("프로젝트에서 제가 개선했습니다.");
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await page.getByRole("button", { name: "Ask a Follow-up" }).click();
   await expect(page.locator(".followup-reason")).toContainText("numbers");
   await expect(page.locator(".runner-q")).toContainText("측정");
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
-  await page.getByLabel("내 답변", { exact: true }).fill("동일한 요청 1000개를 보내 제가 응답 시간을 측정했습니다. 평균 500ms에서 300ms로 감소했습니다.");
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
-  await page.getByRole("button", { name: "면접 마치고 회고 보기" }).click();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("동일한 요청 1000개를 보내 제가 응답 시간을 측정했습니다. 평균 500ms에서 300ms로 감소했습니다.");
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page.locator(".coaching-panel").first()).toContainText("기본 점검");
   await expect(page.locator(".criterion").first()).toContainText("프로젝트에서 제가 개선했습니다.");
   // 면접을 마치면 자동 디브리프가 아직 점검하지 않은 꼬리질문 답변도 기본 점검한다(P0). 그 작업이 끝난 뒤 이 답변의
@@ -72,9 +74,13 @@ test("submitted source → text answer → follow-up → evidence review → foc
   // 문서 이미지(docs/screenshots/)는 UPDATE_DOC_SCREENSHOTS=1일 때만 덮어쓴다. 기본은 test-results/
   await page.screenshot({ path: docScreenshotPath(`coaching-review-${testInfo.project.name}`, (f) => testInfo.outputPath(f)), fullPage: true });
   await page.getByRole("button", { name: "보완 항목 1개 다시 연습" }).click();
-  await expect(page.getByRole("heading", { name: /보완 연습/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: "See the Previous Review" })).toBeVisible();
-  await expect(page.getByRole("radio", { name: "글로 답변" })).toBeVisible();
+  await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
+  await expect(page.getByRole("heading", { level: 1, name: /^Question 1 of \d+$/ })).toBeVisible();
+  const drill = await (await request.get(`${API}/practice/sessions/${page.url().split("/").at(-2)}`)).json();
+  expect(drill.title).toMatch(/^보완 연습/);
+  expect(drill.context_snapshot.origin_session_id).toBe(sessionId);
+  expect(drill.context_snapshot.drill_targets.length).toBeGreaterThan(0);
+  await expect(page.getByRole("radio", { name: "Type", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -83,7 +89,7 @@ test("recording upload failure retains audio for retry and blocks advancing", as
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
   await page.getByRole("button", { name: "Agree & Start" }).click();
-  await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
   // A short capture interval supplies actual fake-device audio to MediaRecorder.
   await page.waitForTimeout(750);
   let failed = false;
@@ -91,13 +97,13 @@ test("recording upload failure retains audio for retry and blocks advancing", as
     if (!failed && route.request().method() === "POST") { failed = true; await route.abort("failed"); }
     else await route.continue();
   });
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
-  await expect(page.getByRole("button", { name: "녹음 저장 다시 시도" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "면접 마치고 회고 보기" })).toBeDisabled();
-  await page.getByRole("button", { name: "녹음 저장 다시 시도" }).click();
-  await expect(page.getByRole("button", { name: "녹음 저장 다시 시도" })).toHaveCount(0);
-  await page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요").fill("직접 입력한 녹음 답변입니다.");
-  await page.getByRole("button", { name: "면접 마치고 회고 보기" }).click();
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await expect(page.getByRole("button", { name: "Retry Saving Recording" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish & Review" })).toBeDisabled();
+  await page.getByRole("button", { name: "Retry Saving Recording" }).click();
+  await expect(page.getByRole("button", { name: "Retry Saving Recording" })).toHaveCount(0);
+  await page.getByLabel("Transcript (editable)", { exact: true }).fill("직접 입력한 녹음 답변입니다.");
+  await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page.locator("audio")).toHaveCount(1);
   await expect(page.getByLabel("전사문 (직접 고칠 수 있어요)")).toHaveValue("직접 입력한 녹음 답변입니다.");
   // 서버는 이번 실행의 임시 녹음 폴더에 저장했다(개발용 backend/recordings/가 아니라)
@@ -108,11 +114,11 @@ test("mock timer saves the current text once at the deadline", async ({ page, re
   const { session } = await seed(request, "mock");
   await page.clock.install();
   await page.goto(`/practice/sessions/${session.id}/run`);
-  await page.getByRole("radio", { name: "글로 답변" }).check();
-  await page.getByRole("button", { name: "답변 시작", exact: true }).click();
-  await page.getByLabel("내 답변", { exact: true }).fill("제가 직접 측정한 결과입니다.");
+  await page.getByRole("radio", { name: "Type", exact: true }).check();
+  await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("제가 직접 측정한 결과입니다.");
   await page.clock.fastForward(10100);
-  await expect(page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요")).toHaveValue("제가 직접 측정한 결과입니다.");
+  await expect(page.getByLabel("Your answer", { exact: true })).toHaveValue("제가 직접 측정한 결과입니다.");
   const saved = await (await request.get(`${API}/practice/sessions/${session.id}`)).json();
   expect(saved.answers).toHaveLength(1);
   expect(saved.answers[0].transcript).toBe("제가 직접 측정한 결과입니다.");
@@ -123,18 +129,18 @@ test("permanent audio error can recover to text and unfinished last answer can r
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
   await page.getByRole("button", { name: "Agree & Start" }).click();
-  await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
   await page.waitForTimeout(750);
   await page.route("**/practice/answers/*/audio", (route) => route.fulfill({ status: 413, contentType: "application/json", body: '{"detail":"녹음 파일이 너무 큽니다"}' }));
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
-  await page.getByRole("button", { name: "녹음 대신 글로 답변" }).click();
-  await page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요").fill("제가 직접 작성한 대체 답변입니다.");
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await page.getByRole("button", { name: "Type Instead" }).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("제가 직접 작성한 대체 답변입니다.");
   // Save this last answer without finishing, then return through the review UI.
-  await page.getByRole("button", { name: "답변만 저장" }).click();
-  await page.getByRole("link", { name: "지금까지 저장한 답변 보기" }).click();
+  await page.getByRole("button", { name: "Save Answer" }).click();
+  await page.getByRole("link", { name: "End Practice" }).click();
   await page.getByRole("link", { name: "면접 이어서 마치기" }).click();
-  await expect(page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요")).toHaveValue("제가 직접 작성한 대체 답변입니다.");
-  await page.getByRole("button", { name: "면접 마치고 회고 보기" }).click();
+  await expect(page.getByLabel("Your answer", { exact: true })).toHaveValue("제가 직접 작성한 대체 답변입니다.");
+  await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page).toHaveURL(new RegExp(`/practice/sessions/${session.id}$`));
   const saved = await (await request.get(`${API}/practice/sessions/${session.id}`)).json();
   expect(saved.finished_at).toBeTruthy();
@@ -146,28 +152,28 @@ test("recorded answer can retry transcription and display returned Korean text",
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
   await page.getByRole("button", { name: "Agree & Start" }).click();
-  await expect(page.getByText("녹음 중 · 경과 시간")).toBeVisible();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
   await page.waitForTimeout(750);
-  await page.getByRole("button", { name: "답변 끝내기" }).click();
+  await page.getByRole("button", { name: "Finish Answer" }).click();
   const text = "저는 캐시를 직접 설계하고 응답 시간을 측정했습니다.";
   // The provider result is simulated: this checks the UI contract, not recognition accuracy.
   await page.route(`**/practice/answers/${aid}/transcribe`, async (route) => {
     const updated = await request.patch(`${API}/practice/answers/${aid}`, { data: { transcript: text } });
     await route.fulfill({ json: { ...await updated.json(), stt_status: "done" } });
   });
-  await page.getByRole("button", { name: "음성 인식 다시 시도" }).click();
-  await expect(page.getByLabel("답변 확인 · 전사문을 고칠 수 있어요")).toHaveValue(text);
-  await expect(page.getByRole("button", { name: "꼬리질문 받기" })).toBeEnabled();
+  await page.getByRole("button", { name: "Retry Transcription" }).click();
+  await expect(page.getByLabel("Transcript (editable)", { exact: true })).toHaveValue(text);
+  await expect(page.getByRole("button", { name: "Ask a Follow-up" })).toBeEnabled();
 });
 
 test('saving an edited answer holds review navigation until the real PATCH completes',async({page,request})=>{
  const {session}=await seed(request);const id=session.answers[0].id;
- await page.goto(`/practice/sessions/${session.id}/run`);await page.getByRole('radio',{name:'글로 답변',exact:true}).check();await page.getByRole('button',{name:'답변 시작',exact:true}).click();
- await page.getByLabel('내 답변',{exact:true}).fill('처음 작성한 답변입니다.');await page.getByRole('button',{name:'답변 끝내기',exact:true}).click();
- const edit=page.getByLabel('답변 확인 · 전사문을 고칠 수 있어요');await expect(edit).toBeEnabled();await edit.fill('저장을 마친 뒤 회고에 표시할 새 답변입니다.');
+ await page.goto(`/practice/sessions/${session.id}/run`);await page.getByRole('radio',{name:'Type',exact:true}).check();await page.getByRole('button',{name:'Start Answer',exact:true}).click();
+ await page.getByLabel('Your answer',{exact:true}).fill('처음 작성한 답변입니다.');await page.getByRole('button',{name:'Finish Answer',exact:true}).click();
+ const edit=page.getByLabel('Your answer',{exact:true});await expect(edit).toBeEnabled();await edit.fill('저장을 마친 뒤 회고에 표시할 새 답변입니다.');
  let release!:()=>void;const barrier=new Promise<void>(resolve=>{release=resolve;});let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});
  await page.route(`**/practice/answers/${id}`,async route=>{if(route.request().method()!=='PATCH')return route.continue();entered();await barrier;await route.continue();});
- const review=page.getByRole('link',{name:'지금까지 저장한 답변 보기',exact:true});await page.getByRole('button',{name:'답변만 저장',exact:true}).click();await waiting;
+ const review=page.getByRole('link',{name:'End Practice',exact:true});await page.getByRole('button',{name:'Save Answer',exact:true}).click();await waiting;
  try{
   await expect(review).toHaveAttribute('aria-disabled','true');
   await review.evaluate(element=>(element as HTMLAnchorElement).click());await expect(page).toHaveURL(/\/run$/);
