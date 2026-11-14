@@ -5,12 +5,12 @@ import { POSE_GEOMETRY, screenToGaze, syntheticFace } from "./gaze/synthetic";
 
 /** e2e 전용 가짜 검출기. 모델을 내려받지 않고 정해진 순서로 특징점을 돌려준다.
  *  localStorage "e2e-face-detector"가 "fail"이면 모델을 불러오지 못한 경우를, "edge-top"이면 카메라 가까이 앉아
- *  이마 위만 프레임 밖이고 눈·코·입은 안에 있는 얼굴을 흉내 낸다. "gaze"·"gaze-inseparable"·"gaze-noisy"는 시선 실험실용 가상 사용자다. */
+ *  이마 위만 프레임 밖이고 눈·코·입은 안에 있는 얼굴을 흉내 낸다. "gaze"·"gaze-inseparable"·"gaze-noisy"·"gaze-still"은 시선 실험실용 가상 사용자다. */
 export async function loadFakeDetector(): Promise<FaceDetector> {
   const mode = localStorage.getItem("e2e-face-detector");
   if (mode === "fail") throw new Error("fake model load failure");
   if (mode === "edge-top") return { detect: () => foreheadCut(), close: () => {} };
-  if (mode === "gaze" || mode === "gaze-inseparable" || mode === "gaze-noisy") return gazeUser(mode);
+  if (mode === "gaze" || mode === "gaze-inseparable" || mode === "gaze-noisy" || mode === "gaze-still") return gazeUser(mode);
   let n = 0;
   return {
     detect: () => {
@@ -43,11 +43,13 @@ function foreheadCut(): Point[] {
 /** 시선 실험실 e2e: 화면에 표시된 대상(data-gaze-target 요소의 가운데, data-gaze-lens면 카메라 렌즈)을 안내된 자세
  *  (data-gaze-pose)로 보는 가상 사용자. 렌즈는 화면 위쪽 띠 가운데보다 0.12rad 위("gaze-inseparable"이면 위쪽 띠 가운데와 같은 곳).
  *  "gaze-noisy"는 특징점 흔들림이 커서 화면 좌표 추정이 실패해야 한다 */
-function gazeUser(mode: "gaze" | "gaze-inseparable" | "gaze-noisy"): FaceDetector {
+function gazeUser(mode: "gaze" | "gaze-inseparable" | "gaze-noisy" | "gaze-still"): FaceDetector {
   let n = 0;
   return {
     detect: () => {
       const view = { w: innerWidth, h: innerHeight };
+      // "gaze-still": 안내를 따르지 않고 늘 화면 가운데를 정면 자세로 본다(시선 방향 기준 잡기 실패 경로)
+      if (mode === "gaze-still") return syntheticFace({ ...screenToGaze(view.w / 2, view.h / 2, view), yaw: 0, pitch: 0, noise: 0.0001, seed: ++n });
       const lens = document.querySelector<HTMLElement>("[data-gaze-lens]");
       const el = lens ?? document.querySelector<HTMLElement>("[data-gaze-target]");
       const pose = POSE_GEOMETRY[(el?.dataset.gazePose as Pose | undefined) ?? "forward"] ?? POSE_GEOMETRY.forward;
