@@ -9,15 +9,6 @@ cd backend
 .venv/bin/python -m pytest -q tests/test_practice_input_identity.py
 ```
 
-HTTP 연결과 AI 응답 분기 검증은 별도 로컬 서버가 고정된 합성 응답을 반환한다. 외부 서비스에 보내지 않으며 실제 모델 출력과 구분한다.
-
-```bash
-cd web
-PATH=../backend/.venv/bin:$PATH npx playwright test -c playwright.local-ai.config.ts
-```
-
-이 환경에서 Chromium 시스템 라이브러리가 필요하면 기존 프로젝트 검증 환경과 동일하게 `LD_LIBRARY_PATH=/home/user/.cache/playwright-syslibs/root/usr/lib/x86_64-linux-gnu`를 지정한다. 새 설정은 기존 e2e의 임시 DB·녹음 디렉터리를 재사용하는 방식으로 **실행마다 새 임시 데이터**를 만들고, OpenAI 주소를 loopback으로 바꾼다. 출력은 `web/test-results/local-ai/`이다. 서버 요청 본문과 인증 헤더는 로그에 쓰지 않는다.
-
 ## 추후 사람 검토 기준
 
 각 항목을 0(충족하지 않음), 1(부분 충족), 2(충족), N/A(근거 없음)로 기록하고, 실제 인용과 판단 이유를 함께 남긴다. 합격 점수나 역량 점수로 환산하지 않는다. 서로 다른 검토자가 같은 사례를 평가하고 차이를 논의할 수 있지만 현재 그러한 검토는 실행하지 않았다.
