@@ -204,10 +204,10 @@ function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId
           {transcriptDirty && <p role="status" data-testid="unsaved-transcript" className="small warn-text">Unsaved changes. Save, or undo them, to see this answer's checks again.</p>}
         </section>
 
-        <section className="answer-section">
+        <section className="answer-section answer-checks">
           <h3>Checks</h3>
           {staleForDraft && <p className="small muted">{transcriptDirty ? "Paused while the transcript has unsaved changes." : "Paused while an earlier answer has unsaved changes."}</p>}
-          {!staleForDraft && <AnswerGuidance a={a} sessionId={sessionId}>{checks}</AnswerGuidance>}
+          {!staleForDraft && <AnswerGuidance a={a}>{checks}</AnswerGuidance>}
           {!staleForDraft && a.ai_feedback && !a.coaching_report && (
             <div className="ai-feedback">
               <span className="chip accent">Earlier AI Feedback</span>
@@ -317,7 +317,13 @@ export default function SessionReview() {
   const loaded = !!s;
   useEffect(() => {
     if (!loaded) return;
-    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    let id: string;
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return; // an undecodable hash such as "#%" points nowhere: ignore it
+    }
+    const target = document.getElementById(id);
     if (target instanceof HTMLDetailsElement && target.classList.contains("answer-card")) {
       target.open = true;
       target.scrollIntoView();

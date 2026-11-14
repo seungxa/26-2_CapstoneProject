@@ -89,7 +89,7 @@ export function integratedCoaching(s: PracticeSession, delivery: DeliveryFact[] 
     if(actions.length===2) break;
   }
   const parts=[`This review uses ${plural(answered.length,'transcript')} from ${plural(s.answers.length,'answer')}.`];
-  if(s.debrief_status==='done' && s.debrief?.lesson && s.debrief.input_status!=='legacy_unverified') parts.push(`Your earlier AI review said: “${excerpt(s.debrief.lesson,160)}”`);
+  // An earlier debrief's lesson is said once, in the Summary line, so the notes don't repeat it
   const primary=points.find(p=>p.source==='coaching');
   const primaryKey=CRITERIA.find(c=>`coaching-${c.key}`===primary?.key);
   if(primary&&primaryKey) parts.push(`${primaryKey.label} needs work in ${plural(new Set(primary.answers.map(x=>x.id)).size,'answer')}, so start there.`);
@@ -106,15 +106,14 @@ export function integratedCoaching(s: PracticeSession, delivery: DeliveryFact[] 
   return {script:excerpt(parts.join('\n\n'),1000),actions:actions.slice(0,2),comments};
 }
 
-export function answerCoaching(a:PracticeAnswer, delivery:DeliveryFact[]=[]) {
+/** One answer's content coaching. Voice and camera numbers and their actions are shown once, in the answer's Delivery section */
+export function answerCoaching(a:PracticeAnswer) {
  const comments=answerComments(a);
  const improvement=comments.find(c=>c.status==='보완');
  const positive=comments.find(c=>c.status==='충분');
- const facts=delivery.filter(f=>f.answerId===a.id);
  const parts:string[]=[];
  if(positive) parts.push(`Keep “${excerpt(positive.quote,100)}”. It meets the ${positive.item} check.`);
  if(improvement) parts.push(`Start with ${improvement.item}. For “${excerpt(improvement.quote,100)}”, the check noted: “${excerpt(improvement.text,160)}”`);
- if(facts.length) parts.push(`Delivery: ${facts.map(f=>`${f.source}: ${f.text}`).join(' ')}`);
- const priority=currentReport(a)?.next_action?.trim()||facts.find(f=>f.action)?.action||null;
+ const priority=currentReport(a)?.next_action?.trim()||null;
  return {script:parts.join(' '),priority,comments};
 }

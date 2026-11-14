@@ -122,6 +122,18 @@ test("a session with no answers yet shows a short note instead of charts", async
   expect(errors).toEqual([]);
 });
 
+test("a malformed address hash is ignored and the review still renders", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const s = await session(request, ["본인의 강점은 무엇인가요?"]);
+  await request.patch(`${API}/practice/answers/${s.answers[0].id}`, { data: { transcript: TEAM } });
+  await page.goto(`/practice/sessions/${s.id}#%`);
+  await expect(page.getByRole("heading", { name: "Summary", exact: true })).toBeVisible();
+  await expect(page.locator("details.answer-card")).toHaveCount(1);
+  await expect(page.locator("details.answer-card")).not.toHaveAttribute("open");
+  expect(errors).toEqual([]);
+});
+
 test("no horizontal scroll with an answer card and the summary details open", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "phone width only");
   const s = await session(request, [LONG_Q]);

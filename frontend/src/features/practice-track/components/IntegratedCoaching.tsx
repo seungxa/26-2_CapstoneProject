@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { label, langOf } from '../labels';
 import type { PracticeSession } from '../types';
-import { answerComments, answerCoaching, competencyCoverage, groundedOutline, integratedCoaching, localDeliveryFacts } from '../review/coaching';
+import { answerComments, answerCoaching, competencyCoverage, groundedOutline, integratedCoaching } from '../review/coaching';
 
 const plural=(n:number,word:string)=>`${n} ${word}${n===1?'':'s'}`;
 const BASIS:Record<string,string>={past_action:'Past Action',proposed_action:'Proposed Action',explanation:'Explanation'};
@@ -27,9 +27,9 @@ export function CompetencyPanel({s}:{s:PracticeSession}) {
  </div>;
 }
 /** One answer's next step, then its checks (children), then coaching notes and an outline built from the transcript, folded. */
-export function AnswerGuidance({a,sessionId,children}:{a:PracticeSession['answers'][number];sessionId:string;children?:ReactNode}) {
+export function AnswerGuidance({a,children}:{a:PracticeSession['answers'][number];children?:ReactNode}) {
  const comments=answerComments(a); const outline=groundedOutline(a);
- const coaching=answerCoaching(a,localDeliveryFacts({id:sessionId,answers:[a]} as PracticeSession));
+ const coaching=answerCoaching(a);
  return <>
   {coaching.priority&&<p className="answer-next" data-testid="answer-next"><b>Next:</b> <span lang={langOf(coaching.priority)}>{coaching.priority}</span></p>}
   {children}

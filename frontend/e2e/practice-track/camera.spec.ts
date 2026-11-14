@@ -173,6 +173,40 @@ test("edge-top: face partly outside is shown as detected, not as not-found", asy
   await expect(card).not.toContainText(/off[- ]screen|looked away/i);
 });
 
+test("a delivery action shows once, in Delivery, when the answer has no current check", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // A face partly out of view for well over a second suggests one camera action
+  await page.addInitScript(() => localStorage.setItem("e2e-face-detector", "edge-top"));
+  await watchCamera(page);
+  const session = await seed(request);
+  // The review sees no current check for the answer, so nothing content-based can be its next step
+  await page.route(`**/practice/sessions/${session.id}`, async (route) => {
+    if (route.request().method() !== "GET" || route.request().isNavigationRequest()) return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, answers: body.answers.map((a: object) => ({ ...a, coaching_report: null })) } });
+  });
+  await page.goto(`/practice/sessions/${session.id}/run`);
+  await page.locator(".camera-panel").getByRole("button", { name: "Turn On Camera" }).click();
+  const consent = page.getByRole("button", { name: "Agree & Start" });
+  if (await consent.count()) await consent.click();
+  else await page.getByRole("button", { name: "Start Answer", exact: true }).click();
+  await page.waitForTimeout(2500);
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await page.getByLabel("Transcript (editable)").fill("팀 프로젝트에서 일정 관리를 맡았습니다.");
+  await page.getByRole("button", { name: "Finish & Review" }).click();
+  const answer = page.locator("details.answer-card").first();
+  await answer.locator(":scope > summary").click();
+  const action = "Adjust the camera so your forehead and chin are both in the preview, then record again.";
+  await expect(cameraBlock(page)).toContainText(`Try: ${action}`);
+  const text = (await answer.textContent()) ?? "";
+  expect(text.split(action).length - 1).toBe(1);
+  await expect(answer.locator(".answer-checks")).not.toContainText(action);
+  await expect(answer.getByTestId("answer-next")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("typed answers never receive camera or voice reports", async ({page,request}) => {
  const session=await seed(request); await page.goto(`/practice/sessions/${session.id}/run`);
  await page.getByRole("button",{name:"Turn On Camera"}).click();

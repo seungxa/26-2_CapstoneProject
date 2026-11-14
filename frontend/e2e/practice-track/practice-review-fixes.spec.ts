@@ -67,6 +67,17 @@ test('draft pauses the entire integrated narrative and actions, and revert resto
  await expect(page.getByTestId('integrated-content-paused')).toHaveCount(0);
 });
 
+test('a verified debrief lesson appears once on the page, in the Summary line',async({page,request})=>{
+ const s=await reviewedSession(request); await routeSession(page,s);
+ await page.goto(`/practice/sessions/${s.id}`);
+ await expect(page.getByTestId('summary-lesson')).toContainText('변경 전 세션의 오래된 해석');
+ await openSummaryDetails(page);
+ await expect(page.locator('.integrated-coaching')).toBeVisible();
+ // Folded text counts too: the same guidance is said in one place only
+ const text=(await page.locator('.practice-track').textContent())??'';
+ expect(text.split('변경 전 세션의 오래된 해석').length-1).toBe(1);
+});
+
 test('successful transcript PATCH cannot restore old dependent guidance when session refresh fails',async({page,request})=>{
  const s=await reviewedSession(request); const options={fail:false}; await routeSession(page,s,options);
  await page.goto(`/practice/sessions/${s.id}`);

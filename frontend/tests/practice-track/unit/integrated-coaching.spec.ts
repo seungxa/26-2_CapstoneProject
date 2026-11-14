@@ -54,11 +54,22 @@ test('coverage separates untagged snapshots and followups; narrative stays bound
  expect(integratedCoaching(session([answer({coaching_report:report as never})])).script.length).toBeLessThanOrEqual(1001);
 });
 
-test('per-answer coaching joins one priority with measured delivery and no invented strength', () => {
- const result=answerCoaching(answer(),[{answerId:'a',order:1,kind:'camera',source:'Camera',text:'Face partly out of view for 2.0s of 5s analyzed.',action:'Check the camera position'}]);
- expect(result.script).toContain('Face partly out of view for 2.0s of 5s analyzed.');
- expect(result.priority).toBe('Check the camera position');
+test('per-answer coaching stays on content: delivery numbers and actions belong to Delivery only', () => {
+ // A caller that still passes this tab's delivery facts gets no delivery guidance back: the Delivery section shows them once
+ const coach=answerCoaching as (...args:unknown[])=>ReturnType<typeof answerCoaching>;
+ const fact={answerId:'a',order:1,kind:'camera',source:'Camera',text:'Face partly out of view for 2.0s of 5s analyzed.',action:'Check the camera position'};
+ const result=coach(answer(),[fact]);
+ expect(result.priority).toBeNull(); // no current report, so no next step under Checks
+ expect(result.script).not.toContain(fact.text);
+ expect(result.script).not.toContain(fact.action);
  expect(result.script).not.toMatch(/great|well done|excellent|meets/i);
+ const checked=answer({coaching_report:{criteria:[],next_action:'Name the result you checked.'} as never});
+ expect(coach(checked,[fact]).priority).toBe('Name the result you checked.');
+});
+
+test('a verified debrief lesson stays in the Summary line, not again in the coaching notes', () => {
+ const s={...session([answer()]),debrief_status:'done',debrief:{lesson:'검증된 세션 교훈입니다',next_action:null,moments:[]}} as unknown as PracticeSession;
+ expect(integratedCoaching(s).script).not.toContain('검증된 세션 교훈입니다');
 });
 
 test('answer action belongs once to the whole answer, not to every weak criterion', () => {
