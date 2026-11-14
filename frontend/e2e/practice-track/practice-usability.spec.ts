@@ -29,22 +29,25 @@ test('unsaved transcript pauses dependent coaching while notes preserve it and r
  await request.post(`${API}/practice/answers/${a.id}/coach`);
  await page.goto(`/practice/sessions/${s.id}`);
  const card=page.locator(`#answer-${a.id}`);
+ await card.locator(':scope > summary').click();
  await expect(card.locator('.coaching-panel')).toBeVisible();
- await card.getByLabel('회고 메모').fill('다음에 다시 확인');
+ await card.getByLabel('Note',{exact:true}).fill('다음에 다시 확인');
+ await expect(card.getByLabel('Note',{exact:true})).toHaveAttribute('lang','ko');
  await expect(card.locator('.coaching-panel')).toBeVisible();
  await expect(page.getByTestId('unsaved-transcript')).toHaveCount(0);
- await card.getByLabel('전사문 (직접 고칠 수 있어요)').fill('아직 저장하지 않은 새 답변');
+ await card.getByLabel('Transcript',{exact:true}).fill('아직 저장하지 않은 새 답변');
  await expect(page.getByTestId('unsaved-transcript')).toBeVisible();
  await expect(card.locator('.coaching-panel')).toHaveCount(0);
- await expect(card.getByText('내 답변으로 개선 틀 만들기',{exact:true})).toHaveCount(0);
- await card.getByRole('button',{name:'저장',exact:true}).click();
- await card.getByRole('radio',{name:'4점',exact:true}).click();
- await expect(card.getByRole('radio',{name:'4점',exact:true})).toBeChecked();
- await expect(card.getByRole('radio',{name:'3점',exact:true})).not.toBeChecked();
- await card.getByRole('radio',{name:'4점',exact:true}).focus();
+ await expect(card.getByText('Answer Outline',{exact:true})).toHaveCount(0);
+ await card.getByRole('button',{name:'Save',exact:true}).click();
+ await card.getByRole('radio',{name:'4 stars',exact:true}).click();
+ await expect(card.getByRole('radio',{name:'4 stars',exact:true})).toBeChecked();
+ await expect(card.getByRole('radio',{name:'3 stars',exact:true})).not.toBeChecked();
+ await expect(card.locator(':scope > summary').getByRole('img',{name:'Self-rating 4 of 5'})).toBeVisible();
+ await card.getByRole('radio',{name:'4 stars',exact:true}).focus();
  await page.keyboard.press('ArrowRight');
- await expect(card.getByRole('radio',{name:'5점',exact:true})).toBeChecked();
- await expect(card.getByRole('radio',{name:'5점',exact:true})).toBeFocused();
+ await expect(card.getByRole('radio',{name:'5 stars',exact:true})).toBeChecked();
+ await expect(card.getByRole('radio',{name:'5 stars',exact:true})).toBeFocused();
 });
 
 
@@ -55,7 +58,10 @@ test('frozen submitted source distinguishes confirmed, legacy, and missing confi
  for(const [status,label] of [['confirmed','v1 · Submitted'],['legacy_unverified','v1 · Marked Submitted, Unconfirmed'],[undefined,'v1 · Submitted, No Confirmation']] as const) {
   await page.route(`**/practice/sessions/${s.id}`,route=>route.request().resourceType()==='document' ? route.continue() : route.fulfill({json:{...s,context_snapshot:{company:'합성 회사',position:'합성 직무',essay_basis:'submitted',job_description:'',essays:[{...essay,submission_confirmation:status}]}}}));
   await page.goto(`/practice/sessions/${s.id}`);
+  // Practice Materials is a closed fold inside the Summary card
+  await page.getByText('Practice Materials',{exact:true}).click();
   const summary=page.locator('.source-detail summary').filter({hasText:'자료 상태'});
+  await expect(summary).toBeVisible();
   await expect(summary.locator('.chip')).toHaveText(label);
   await expect(summary.locator('[lang="ko"]')).toHaveText('자료 상태');
   await page.unroute(`**/practice/sessions/${s.id}`);
@@ -69,9 +75,10 @@ test('a later draft cannot request coaching until the earlier draft is saved',as
  for(const a of s.answers) await request.patch(`${API}/practice/answers/${a.id}`,{data:{transcript:'합성 예시에서 로그를 분류했습니다.'}});
  await page.goto(`/practice/sessions/${s.id}`);
  const first=page.locator(`#answer-${s.answers[0].id}`); const later=page.locator(`#answer-${s.answers[1].id}`);
- await first.getByLabel('전사문 (직접 고칠 수 있어요)').fill('아직 저장하지 않은 앞선 설명');
- await later.getByLabel('전사문 (직접 고칠 수 있어요)').fill('아직 저장하지 않은 나중 설명');
- await expect(later.getByRole('button',{name:'답변 점검',exact:true})).toBeDisabled();
- await first.getByRole('button',{name:'저장',exact:true}).click();
- await expect(later.getByRole('button',{name:'답변 점검',exact:true})).toBeEnabled();
+ await first.locator(':scope > summary').click(); await later.locator(':scope > summary').click();
+ await first.getByLabel('Transcript',{exact:true}).fill('아직 저장하지 않은 앞선 설명');
+ await later.getByLabel('Transcript',{exact:true}).fill('아직 저장하지 않은 나중 설명');
+ await expect(later.getByRole('button',{name:'Check Answer',exact:true})).toBeDisabled();
+ await first.getByRole('button',{name:'Save',exact:true}).click();
+ await expect(later.getByRole('button',{name:'Check Answer',exact:true})).toBeEnabled();
 });

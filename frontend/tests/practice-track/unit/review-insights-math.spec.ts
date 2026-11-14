@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { answerMetrics, sessionInsights, splitPoints, syllableCount, type ImprovementPoint } from "../../../src/features/practice-track/review/insights";
+import { answerMetrics, answerVerdict, sessionInsights, splitPoints, stateName, syllableCount, type ImprovementPoint } from "../../../src/features/practice-track/review/insights";
 import type { CoachingReport, PracticeAnswer, PracticeSession } from "../../../src/features/practice-track/types";
 
 
@@ -90,7 +90,7 @@ test("time rules apply to mock sessions only: over at limit minus 1 second, shor
   const short = mock.points.find((p) => p.key === "time-short");
   expect(orders(over)).toEqual([mock.answers[0].order, mock.answers[1].order]);
   expect(orders(short)).toEqual([mock.answers[2].order]); // 24초는 정확히 40%라 짧지 않음
-  expect(over?.evidence).toContain("60초");
+  expect(over?.evidence).toContain("60s");
   expect(mock.answers[0].limitSec).toBe(60);
   expect(mock.answers[2].usage).toBeCloseTo(20 / 60, 5);
 
@@ -115,7 +115,7 @@ test("personal role cannot be assessed by presence of pronouns", () => {
   expect(role).toBeUndefined();
 });
 
-test("coaching: no report shows 점검 전; 보완 items are grouped by criterion, quoting only text that is in the transcript", () => {
+test("coaching: no report shows Not Checked; Needs Work items are grouped by criterion, quoting only text that is in the transcript", () => {
   const t1 = "저는 로그를 분석해서 원인을 찾았습니다. 그 뒤로 배포 전에 점검표를 만들었습니다.";
   const t3 = "제가 데이터를 정리했고 발표를 맡았습니다.";
   const a1 = ans({ transcript: t1, coaching_report: report({ specificity: "보완" }, { quote: "로그를 분석해서", next_action: "Q1에 맞는 다음 행동", reason: "결과 수치가 없어요" }) });
@@ -128,12 +128,12 @@ test("coaching: no report shows 점검 전; 보완 items are grouped by criterio
   expect(ins.answers[1].statuses).toEqual({ specificity: "충분", relevance: "보완", consistency: "보완" });
   expect(keys(ins.points)).toEqual(["coaching-specificity", "coaching-relevance", "coaching-consistency"]);
   const spec = ins.points[0];
-  expect(spec.title).toContain("구체성");
+  expect(spec.title).toBe("Specificity: Needs Work"); // English name from the key, even for an old Korean label
   expect(spec.source).toBe("coaching");
   expect(orders(spec)).toEqual([a1.order_no, a3.order_no]);
   expect(spec.answers[0].quote).toBe("로그를 분석해서");
   expect(spec.answers[1].quote).toBeUndefined(); // 전사문에 없는 인용은 보이지 않는다
-  expect(spec.evidence).toContain("결과 수치가 없어요");
+  expect(spec.evidence).toBe(`Q${a1.order_no}: 결과 수치가 없어요 (and 1 more)`); // the stored reason is shown as is
   expect(spec.action).toBe("Q1에 맞는 다음 행동"); // 보완이 이 기준 하나뿐이면 보고서의 다음 행동
   expect(ins.points[1].action).not.toBe("보고서의 다음 행동"); // 보완이 둘이면 기준별 기본 문구
   expect(ins.points[1].action.length).toBeGreaterThan(0);
@@ -187,4 +187,34 @@ test("answers are listed by order number, follow-ups included", () => {
   const b = ans({ order_no: 1, transcript: "하나" });
   const c = ans({ order_no: 2, transcript: "둘", parent_answer_id: b.id });
   expect(sessionInsights(sess([a, b, c])).answers.map((m) => m.order)).toEqual([1, 2, 3]);
+});
+
+test("rule sentences are English while thresholds stay the same", () => {
+  const base = said(100);
+  const ins = sessionInsights(sess([
+    rec(20, base, { self_rating: 2 }),
+    rec(20, base, { self_rating: 1 }),
+    rec(60, base),
+    rec(20, TEAM.repeat(3), { coaching_report: report({ relevance: "보완" }, { reason: "The answer comes late.", next_action: "Answer the question first." }) }),
+    rec(20, base, { self_rating: 3 }),
+  ], { mode: "mock", answer_sec: 60 }));
+  expect(ins.points.map((p) => p.title)).toEqual([
+    "Relevance: Needs Work", "Used the whole time limit", "Much shorter than the time limit",
+    "Faster than your usual pace", "Slower than your usual pace", "Low self-rating",
+  ]);
+  for (const p of ins.points) expect(`${p.title} ${p.evidence} ${p.action}`, p.key).not.toMatch(/[가-힣]/);
+  const [q1, q2, q3, q4, q5] = ins.answers.map((m) => `Q${m.order}`);
+  expect(ins.points.find((p) => p.key === "time-over")?.evidence).toBe(`${q3} 60s / limit 60s`);
+  expect(ins.points.find((p) => p.key === "time-short")?.evidence).toBe(`${q1} 20s (33%) · ${q2} 20s (33%) · ${q4} 20s (33%) · ${q5} 20s (33%) / limit 60s`);
+  expect(ins.points.find((p) => p.key === "rating")?.evidence).toBe(`${q1} 2/5 · ${q2} 1/5`);
+  expect(ins.points.find((p) => p.key === "speed-fast")?.evidence).toMatch(new RegExp(`^${q4} \\d+ syllables/min · session average \\d+ syllables/min`));
+});
+
+test("an answer's verdict is Needs Work first, then Meets, then Not Judged, else Not Checked", () => {
+  const S = sess([]);
+  expect(answerVerdict(answerMetrics(ans({ transcript: "가", coaching_report: report({ specificity: "보완", relevance: "판단유보" }) }), S))).toBe("보완");
+  expect(answerVerdict(answerMetrics(ans({ transcript: "가", coaching_report: report({ specificity: "판단유보" }) }), S))).toBe("충분");
+  expect(answerVerdict(answerMetrics(ans({ transcript: "가", coaching_report: report({ specificity: "판단유보", relevance: "판단유보", consistency: "판단유보" }) }), S))).toBe("판단유보");
+  expect(answerVerdict(answerMetrics(ans({ transcript: "가" }), S))).toBe("점검 전");
+  expect(["충분", "보완", "판단유보", "점검 전"].map((st) => stateName(st as never))).toEqual(["Meets", "Needs Work", "Not Judged", "Not Checked"]);
 });

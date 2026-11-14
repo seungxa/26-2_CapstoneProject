@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
-// 회고 한눈에 보기(R1) — 녹음 답변이 있는 모의시험 세션. 카메라·마이크 없이 API로 고정된 데이터를 만든다:
+// 회고 요약(R1) — 녹음 답변이 있는 모의시험 세션. 그래프와 보완점은 Summary 카드의 Details 안에 있다. 카메라·마이크 없이 API로 고정된 데이터를 만든다:
 // 녹음 파일은 의미 없는 바이트로 올리고(e2e는 STT_PROVIDER=off라 전사하지 않음) 녹음 길이는 업로드 값으로 정한다.
 // 전사문은 직접 넣고, 코칭은 키가 없는 기본 점검(자소서에 수치가 있고 답변에 없으면 구체성 '보완')이다.
 // 아래 기대값(음절 수·분당 음절·막대 비율)은 구현과 따로 손으로 계산한 값이다.
@@ -67,6 +67,12 @@ async function bars(fig: Locator) {
     width: Number.parseFloat((r.querySelector(".bar-fill") as HTMLElement).style.width),
   })));
 }
+/** Opens the Summary card's Details fold, where the charts and points live */
+async function openDetails(page: Page) {
+  const card = page.locator(".review-summary");
+  await card.locator(".summary-details > summary").click();
+  return card;
+}
 const refLeft = (fig: Locator) => fig.locator(".bar-ref").first().evaluate((el) => Number.parseFloat((el as HTMLElement).style.left));
 const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
@@ -84,39 +90,45 @@ test("recorded mock session: time, speech-rate and rating bars match hand-comput
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`/practice/sessions/${seeded.sessionId}`);
-  const card = page.locator("section.insights");
-  await expect(card.getByRole("heading", { name: "한눈에 보기" })).toBeVisible();
+  // The Summary itself: answer count, answers that need work, the average self-rating and one next step
+  const summary = page.locator(".review-summary");
+  await expect(summary.getByTestId("summary-counts")).toHaveText("5 answers · 4 need work · Avg. self-rating 3.5");
+  await expect(summary.getByTestId("summary-next")).toHaveText("Next: Q1 · Explain the measures and comparison conditions from before and after the improvement.");
+  const card = await openDetails(page);
 
-  const time = card.getByRole("figure", { name: "답변 시간" });
-  await expect(time).toContainText("제한 60초");
+  const time = card.getByRole("figure", { name: "Answer Time" });
+  await expect(time).toContainText("Limit 60s");
   const t = await bars(time);
-  expect(t.map((b) => [b.label, b.value])).toEqual([["Q1", "60초"], ["Q2", "18초"], ["Q3", "45초"], ["Q4", "30초"]]);
+  expect(t.map((b) => [b.label, b.value])).toEqual([["Q1", "60s"], ["Q2", "18s"], ["Q3", "45s"], ["Q4", "30s"]]);
   expect(t[0].width).toBeCloseTo(99.333, 2); // 59.6 / 60
   expect(t[1].width).toBeCloseTo(30, 5); // 18 / 60
   expect(await refLeft(time)).toBeCloseTo(100, 5); // 제한 선은 축 끝(제한이 가장 큰 값)
 
-  const speed = card.getByRole("figure", { name: "말 빠르기(분당 음절)" });
-  await expect(speed).toContainText("이 세션 평균 130");
-  await expect(speed).toContainText("앞뒤 침묵이 들어 있어요");
+  const speed = card.getByRole("figure", { name: "Speaking Pace (syllables/min)" });
+  await expect(speed).toContainText("Session average 130");
+  await expect(speed).toContainText("pauses included");
   const s = await bars(speed);
   expect(s.map((b) => [b.label, b.value])).toEqual([["Q1", "135"], ["Q2", "123"], ["Q3", "73"], ["Q4", "188"]]);
   expect(s[3].width).toBeCloseTo(100, 5);
   expect(s[2].width).toBeCloseTo((73 / 188) * 100, 2);
   expect(await refLeft(speed)).toBeCloseTo((129.75 / 188) * 100, 2);
   // 막대 위에 올리면 값이 보인다(SVG가 아닌 HTML title)
-  await expect(speed.locator(".bar-row").nth(3)).toHaveAttribute("title", "Q4 · 분당 188음절 (평균 130)");
+  await expect(speed.locator(".bar-row").nth(3)).toHaveAttribute("title", "Q4 · 188 syllables/min (average 130)");
 
-  const rating = card.getByRole("figure", { name: "자기 평가" });
+  const rating = card.getByRole("figure", { name: "Self Rating" });
   const r = await bars(rating);
-  expect(r.map((b) => [b.label, b.value, b.width])).toEqual([["Q1", "3점", 60], ["Q2", "2점", 40], ["Q3", "4점", 80], ["Q4", "5점", 100]]);
+  expect(r.map((b) => [b.label, b.value, b.width])).toEqual([["Q1", "3/5", 60], ["Q2", "2/5", 40], ["Q3", "4/5", 80], ["Q4", "5/5", 100]]);
 
   // 표로 보기: 그래프와 같은 값
-  await speed.getByText("표로 보기").click();
+  await speed.getByText("Show as Table").click();
   await expect(speed.getByRole("table").locator("tbody tr")).toHaveText(["Q1135", "Q2123", "Q373", "Q4188"]);
 
-  const grid = card.getByRole("table", { name: "답변별 코칭 점검 상태" });
-  for (const q of ["Q1", "Q2", "Q3", "Q4"]) await expect(grid.getByRole("row").filter({ hasText: q }).getByRole("cell").first()).toHaveText("!보완");
-  await expect(grid.getByRole("row").filter({ hasText: "Q5" }).getByRole("cell").first()).toHaveText("–판단유보");
+  const grid = card.getByRole("table", { name: "Checks for each answer" });
+  for (const q of ["Q1", "Q2", "Q3", "Q4"]) await expect(grid.getByRole("row").filter({ hasText: q }).getByRole("cell").first()).toHaveText("!Needs Work");
+  await expect(grid.getByRole("row").filter({ hasText: "Q5" }).getByRole("cell").first()).toHaveText("–Not Judged");
+  // The folded answer lines carry the same verdicts
+  await expect(page.locator(`#answer-${seeded.answerIds[0]} > summary`)).toContainText("Needs Work");
+  await expect(page.locator(`#answer-${seeded.answerIds[4]} > summary`)).toContainText("Not Judged");
 
   expect(await noOverflow(page)).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
@@ -124,58 +136,67 @@ test("recorded mock session: time, speech-rate and rating bars match hand-comput
 
 test("recorded mock session: improvement points in rule order, folded after five, with evidence", async ({ page }) => {
   await page.goto(`/practice/sessions/${seeded.sessionId}`);
+  await openDetails(page);
   const points = page.getByTestId("insight-points");
   const shown = points.locator(":scope > ol > li");
   await expect(shown.locator("strong")).toHaveText([
-    "Specificity 보완", "제한 시간을 다 썼어요", "제한 시간보다 많이 짧았어요", "평소보다 빠르게 말했어요", "평소보다 느리게 말했어요",
+    "Specificity: Needs Work", "Used the whole time limit", "Much shorter than the time limit", "Faster than your usual pace", "Slower than your usual pace",
   ]);
   const coaching = shown.nth(0);
-  await expect(coaching).toContainText("코칭 결과");
-  await expect(coaching).toContainText("(외 3개 답변)");
+  await expect(coaching).toContainText("From checks");
+  await expect(coaching).toContainText("(and 3 more)");
   await expect(coaching.locator("blockquote")).toHaveCount(2); // 인용은 두 답변까지
   await expect(coaching).toContainText("Explain the measures and comparison conditions from before and after the improvement."); // 보고서의 다음 행동
-  await expect(shown.nth(1)).toContainText("Q1 60초 / 제한 60초");
-  await expect(shown.nth(2)).toContainText("Q2 18초(30%) / 제한 60초");
-  await expect(shown.nth(3)).toContainText("Q4 분당 188음절 · 이 세션 평균 130음절");
-  await expect(shown.nth(4)).toContainText("Q3 분당 73음절");
+  await expect(shown.nth(1)).toContainText("Q1 60s / limit 60s");
+  await expect(shown.nth(2)).toContainText("Q2 18s (30%) / limit 60s");
+  await expect(shown.nth(3)).toContainText("Q4 188 syllables/min · session average 130 syllables/min");
+  await expect(shown.nth(4)).toContainText("Q3 73 syllables/min");
 
   const more = points.locator("details");
-  await expect(more.locator("summary")).toHaveText("보완점 1개 더 보기");
+  await expect(more.locator("summary")).toHaveText("Show 1 More");
   await more.locator("summary").click();
-  await expect(more.locator("li strong")).toHaveText(["스스로 아쉬웠다고 평가했어요"]);
-  await expect(more.locator("li").nth(0)).toContainText("Q2 2점");
+  await expect(more.locator("li strong")).toHaveText(["Low self-rating"]);
+  await expect(more.locator("li").nth(0)).toContainText("Q2 2/5");
 });
 
-test("clicking an improvement point's answer link moves to that answer card", async ({ page }) => {
+test("clicking an improvement point's answer link opens and moves to that answer card", async ({ page }) => {
   await page.goto(`/practice/sessions/${seeded.sessionId}`);
-  const role = page.getByTestId("insight-points").getByRole("listitem").filter({ hasText: "평소보다 느리게 말했어요" });
-  await role.getByRole("link", { name: "Q3" }).click();
+  await openDetails(page);
   const target = `answer-${seeded.answerIds[2]}`;
-  await expect(page).toHaveURL(new RegExp(`#${target}$`));
   const cardEl = page.locator(`#${target}`);
+  await expect(cardEl).not.toHaveAttribute("open");
+  const role = page.getByTestId("insight-points").getByRole("listitem").filter({ hasText: "Slower than your usual pace" });
+  await role.getByRole("link", { name: "Q3" }).click();
+  await expect(page).toHaveURL(new RegExp(`#${target}$`));
+  await expect(cardEl).toHaveAttribute("open", "");
   await expect(cardEl).toBeInViewport();
-  await expect(cardEl.getByRole("heading", { level: 3 })).toContainText("Q3.");
-  await expect(cardEl.getByLabel("전사문 (직접 고칠 수 있어요)")).toHaveValue(ANSWERS[2].text);
+  await expect(cardEl.locator(":scope > summary")).toContainText("Q3");
+  await expect(cardEl.getByLabel("Transcript", { exact: true })).toHaveValue(ANSWERS[2].text);
 });
 
 test("keyboard: grid links are in tab order, Enter follows a point link, and the table view opens with Enter", async ({ page }) => {
   await page.goto(`/practice/sessions/${seeded.sessionId}`);
-  const grid = page.getByRole("table", { name: "답변별 코칭 점검 상태" });
+  // The Details fold opens from the keyboard too
+  const details = page.locator(".review-summary .summary-details > summary");
+  await details.focus();
+  await page.keyboard.press("Enter");
+  const grid = page.getByRole("table", { name: "Checks for each answer" });
   await grid.getByRole("link", { name: "Q1" }).focus();
   await page.keyboard.press("Tab");
   await expect(grid.getByRole("link", { name: "Q2" })).toBeFocused();
 
-  const time = page.getByRole("figure", { name: "답변 시간" });
+  const time = page.getByRole("figure", { name: "Answer Time" });
   const summary = time.locator("summary");
   await summary.focus();
   await page.keyboard.press("Enter");
   await expect(time.getByRole("table")).toBeVisible();
-  await expect(time.getByRole("table").locator("tbody tr")).toHaveText(["Q160초", "Q218초", "Q345초", "Q430초"]);
+  await expect(time.getByRole("table").locator("tbody tr")).toHaveText(["Q160s", "Q218s", "Q345s", "Q430s"]);
 
-  const over = page.getByTestId("insight-points").getByRole("listitem").filter({ hasText: "제한 시간을 다 썼어요" });
+  const over = page.getByTestId("insight-points").getByRole("listitem").filter({ hasText: "Used the whole time limit" });
   await over.getByRole("link", { name: "Q1" }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(new RegExp(`#answer-${seeded.answerIds[0]}$`));
+  await expect(page.locator(`#answer-${seeded.answerIds[0]}`)).toHaveAttribute("open", "");
   await expect(page.locator(`#answer-${seeded.answerIds[0]}`)).toBeInViewport();
 });
 
@@ -183,8 +204,8 @@ test("card text meets 4.5:1 contrast against the card in light and dark", async 
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto(`/practice/sessions/${seeded.sessionId}`);
-    const card = page.locator("section.insights");
-    await expect(card.getByRole("heading", { name: "한눈에 보기" })).toBeVisible();
+    const card = await openDetails(page);
+    await expect(card.getByRole("figure", { name: "Answer Time" })).toBeVisible();
     // 근거·기준선 이름·안내 문장(.muted)과 막대 값·라벨까지, 카드 안의 글자 색 대비를 잰다(WCAG AA 일반 글자 4.5:1)
     const worst = await card.evaluate((root) => {
       const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);

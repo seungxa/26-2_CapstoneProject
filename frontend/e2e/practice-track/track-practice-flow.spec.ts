@@ -203,6 +203,7 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     // The frozen essays are shown with the review
     await page.goto(`/practice/sessions/${sessionId}`);
+    await page.getByText("Practice Materials", { exact: true }).click();
     const sources = page.locator(".source-context");
     await expect(sources).toContainText(`${company} · ${position}`);
     await sources.locator("summary").filter({ hasText: essays[0].question }).click();

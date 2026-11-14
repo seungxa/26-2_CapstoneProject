@@ -1,5 +1,6 @@
-// 회고 한눈에 보기(R1): 세션 상세에 이미 있는 값만으로 답변별 지표와 보완점을 계산한다.
+// 회고 요약(R1): 세션 상세에 이미 있는 값만으로 답변별 지표와 보완점을 계산한다.
 // LLM을 부르지 않으며 같은 입력이면 같은 결과가 나온다. 기준값은 잠정이다(docs/decisions.md D-22).
+import { label } from "../labels";
 import type { CoachingReport, PracticeAnswer, PracticeSession } from "../types";
 
 export const SHORT_RATIO = 0.4; // 모의시험 녹음이 제한 시간의 40% 미만이면 짧음
@@ -14,12 +15,16 @@ export const MAX_QUOTES = 2; // 한 보완점에 인용을 보일 답변 수
 const QUOTE_CHARS = 60;
 
 export type CriterionKey = CoachingReport["criteria"][number]["key"];
+/** 저장된 판정(충분·보완·판단유보)과 화면에서만 쓰는 '점검 전'(현재 보고서 없음) */
 export type CriterionState = CoachingReport["criteria"][number]["status"] | "점검 전";
 export const CRITERIA: { key: CriterionKey; label: string; action: string }[] = [
-  { key: "specificity", label: "구체성", action: "상황·내 행동·결과 중 빠진 것을 숫자나 사례 하나로 채워 다시 답해 보기" },
-  { key: "relevance", label: "질문 적합성", action: "질문이 묻는 것에 대한 답을 첫 문장에 두고 다시 답해 보기" },
-  { key: "consistency", label: "제출본 연결", action: "제출한 자소서의 같은 경험과 맞춰 보고, 다른 점이 있으면 그 이유를 한 문장으로 설명해 보기" },
+  { key: "specificity", label: label("criterion", "specificity"), action: "Answer again and fill in the missing situation, action, or result with one number or example." },
+  { key: "relevance", label: label("criterion", "relevance"), action: "Answer again with the direct answer to the question in your first sentence." },
+  { key: "consistency", label: label("criterion", "consistency"), action: "Compare with the same experience in your submitted essay, and explain any difference in one sentence." },
 ];
+
+/** Screen name of a state. The stored verdicts use the shared label table */
+export const stateName = (state: CriterionState) => (state === "점검 전" ? "Not Checked" : label("verdict", state));
 
 export interface AnswerMetrics {
   id: string;
@@ -85,9 +90,15 @@ export function answerMetrics(a: PracticeAnswer, s: PracticeSession): AnswerMetr
   };
 }
 
+/** One verdict for an answer's folded line: any Needs Work, else any Meets, else Not Judged, else Not Checked */
+export function answerVerdict(m: AnswerMetrics): CriterionState {
+  const states = Object.values(m.statuses);
+  return (["보완", "충분", "판단유보"] as const).find((s) => states.includes(s)) ?? "점검 전";
+}
+
 /** 답변 앞부분 인용(줄이면 끝에 …) */
 const head = (text: string) => (text.length > QUOTE_CHARS ? `${text.slice(0, QUOTE_CHARS)}…` : text);
-const secs = (v: number) => `${Math.round(v)}초`;
+const secs = (v: number) => `${Math.round(v)}s`;
 
 export function sessionInsights(s: PracticeSession): Insights {
   const sorted = [...s.answers].sort((a, b) => a.order_no - b.order_no);
@@ -112,13 +123,14 @@ export function sessionInsights(s: PracticeSession): Insights {
     // 보고서의 다음 행동은 답변 전체에 대한 것이다: 보완이 이 기준 하나뿐일 때만 이 기준의 행동으로 쓴다
     const only = first.criteria.filter((x) => x.status === "보완").length === 1;
     push({
-      key: `coaching-${c.key}`, rank: 1, source: "coaching", title: `${crit.label || c.label} 보완`,
+      // 이름은 저장된 라벨(예전 보고서는 한국어) 대신 기준 key로 찾는다
+      key: `coaching-${c.key}`, rank: 1, source: "coaching", title: `${c.label}: ${stateName("보완")}`,
       answers: hits.map((a) => {
         const q = currentReport(a)?.criteria.find((x) => x.key === c.key)?.answer_quote?.trim();
         // 전사문에 그대로 있는 인용만 보인다(AI가 고쳐 쓴 인용은 근거가 되지 못한다)
         return ref(answers.find((m) => m.id === a.id)!, q && transcriptOf(a).includes(q) ? head(q) : undefined);
       }),
-      evidence: `Q${hits[0].order_no}: ${crit.reason}${hits.length > 1 ? ` (외 ${hits.length - 1}개 답변)` : ""}`,
+      evidence: `Q${hits[0].order_no}: ${crit.reason}${hits.length > 1 ? ` (and ${hits.length - 1} more)` : ""}`,
       action: only && first.next_action.trim() ? first.next_action : c.action,
     });
   }
@@ -127,41 +139,41 @@ export function sessionInsights(s: PracticeSession): Insights {
   const timed = answers.filter((m) => m.limitSec != null && m.durationSec != null);
   const over = timed.filter((m) => (m.durationSec as number) >= (m.limitSec as number) - OVER_MARGIN_SEC);
   push({
-    key: "time-over", rank: 2, title: "제한 시간을 다 썼어요", answers: over.map((m) => ref(m)),
-    evidence: `${over.map((m) => `Q${m.order} ${secs(m.durationSec as number)}`).join(" · ")} / 제한 ${secs(s.answer_sec)}`,
-    action: "결론을 먼저 말하고 근거를 두 가지로 줄여 다시 답해 보기",
+    key: "time-over", rank: 2, title: "Used the whole time limit", answers: over.map((m) => ref(m)),
+    evidence: `${over.map((m) => `Q${m.order} ${secs(m.durationSec as number)}`).join(" · ")} / limit ${secs(s.answer_sec)}`,
+    action: "Lead with your conclusion, cut the support to two points, and answer again.",
   });
   const short = timed.filter((m) => (m.usage as number) < SHORT_RATIO);
   push({
-    key: "time-short", rank: 3, title: "제한 시간보다 많이 짧았어요", answers: short.map((m) => ref(m)),
-    evidence: `${short.map((m) => `Q${m.order} ${secs(m.durationSec as number)}(${Math.round((m.usage as number) * 100)}%)`).join(" · ")} / 제한 ${secs(s.answer_sec)}`,
-    action: "상황 → 내 행동 → 결과 순서로 한 번 더 채워 보기",
+    key: "time-short", rank: 3, title: "Much shorter than the time limit", answers: short.map((m) => ref(m)),
+    evidence: `${short.map((m) => `Q${m.order} ${secs(m.durationSec as number)} (${Math.round((m.usage as number) * 100)}%)`).join(" · ")} / limit ${secs(s.answer_sec)}`,
+    action: "Answer again in order: the situation, your action, then the result.",
   });
 
   // 5. 세션 평균 대비 말 빠르기
   if (avgSpm != null) {
     const dev = (m: AnswerMetrics) => ((m.spm as number) - avgSpm) / avgSpm;
-    const avgText = `이 세션 평균 ${Math.round(avgSpm)}음절(녹음 길이 기준, 침묵 포함)`;
+    const avgText = `session average ${Math.round(avgSpm)} syllables/min (by recording length, pauses included)`;
     const fast = measured.filter((m) => dev(m) > SPEED_DEVIATION);
     const slow = measured.filter((m) => dev(m) < -SPEED_DEVIATION);
     push({
-      key: "speed-fast", rank: 5, title: "평소보다 빠르게 말했어요", answers: fast.map((m) => ref(m)),
-      evidence: `${fast.map((m) => `Q${m.order} 분당 ${m.spm}음절`).join(" · ")} · ${avgText}`,
-      action: "문장과 문장 사이에 한 박자 쉬어 가며 다시 답해 보기",
+      key: "speed-fast", rank: 5, title: "Faster than your usual pace", answers: fast.map((m) => ref(m)),
+      evidence: `${fast.map((m) => `Q${m.order} ${m.spm} syllables/min`).join(" · ")} · ${avgText}`,
+      action: "Pause for a beat between sentences and answer again.",
     });
     push({
-      key: "speed-slow", rank: 5, title: "평소보다 느리게 말했어요", answers: slow.map((m) => ref(m)),
-      evidence: `${slow.map((m) => `Q${m.order} 분당 ${m.spm}음절`).join(" · ")} · ${avgText}`,
-      action: "핵심 문장을 먼저 말하고 설명을 덧붙여 다시 답해 보기",
+      key: "speed-slow", rank: 5, title: "Slower than your usual pace", answers: slow.map((m) => ref(m)),
+      evidence: `${slow.map((m) => `Q${m.order} ${m.spm} syllables/min`).join(" · ")} · ${avgText}`,
+      action: "Say your key sentence first, add the explanation after it, and answer again.",
     });
   }
 
   // 6. 자기 평가 1~2점
   const low = answers.filter((m) => m.rating != null && m.rating <= LOW_RATING);
   push({
-    key: "rating", rank: 6, title: "스스로 아쉬웠다고 평가했어요", answers: low.map((m) => ref(m)),
-    evidence: low.map((m) => `Q${m.order} ${m.rating}점`).join(" · "),
-    action: "아쉬웠던 이유를 회고 메모에 한 줄 적고 다시 연습하기",
+    key: "rating", rank: 6, title: "Low self-rating", answers: low.map((m) => ref(m)),
+    evidence: low.map((m) => `Q${m.order} ${m.rating}/5`).join(" · "),
+    action: "Write one line in your note about what fell short, then practice again.",
   });
 
   return { answers, avgSpm, points, untranscribed: answers.filter((m) => m.recorded && !m.hasTranscript).length };

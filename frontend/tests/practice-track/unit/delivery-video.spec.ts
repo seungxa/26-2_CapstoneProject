@@ -27,8 +27,9 @@ test("diagnostics distinguish unanalysed coverage from face not found", () => {
   expect(d.unanalysedMs).toBe(4000);
   expect(d.coverage).toBe(0.2);
   expect(d.quality).toBe("partial");
-  expect(d.comments.join(" ")).toContain("분석하지 못한");
-  expect(d.comments.join(" ")).toContain("조명");
+  expect(d.comments.join(" ")).toContain("wasn't analyzed");
+  expect(d.comments.join(" ")).toContain("lighting");
+  expect(d.comments.join(" ")).not.toMatch(/[가-힣]/);
 });
 
 test("video revision replacement and clearing retain the legacy save/read signatures", () => {

@@ -43,14 +43,18 @@ test('classification controls, frozen review and accessible competency history',
  await page.getByLabel('Your answer',{exact:true}).fill('제가 역할을 나누고 매일 진행 상황을 공유했습니다.');
  await page.getByRole('button',{name:'Finish Answer'}).click();
  await page.getByRole('button',{name:'Finish & Review'}).click();
- await expect(page.getByRole('heading',{name:'통합 코칭'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Summary',exact:true})).toBeVisible();
  const reviewStart=observed.length;
- await expect(page.getByRole('heading',{name:'연습 역량과 관찰 근거'})).toBeVisible();
- await expect(page.getByText('질문 1개 · 인용 근거 0개')).toBeVisible();
+ // Coaching notes and the practiced skills are folded under the Summary card's Details
+ await page.locator('.review-summary .summary-details > summary').click();
+ await expect(page.getByRole('heading',{name:'Coaching Notes'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Skills Practiced'})).toBeVisible();
+ await expect(page.getByText('1 question · 0 quotes',{exact:true})).toBeVisible();
+ await expect(page.locator('.competency-review h4').first()).toHaveText(label('competency',competency));
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
  const reviewLink=page.getByRole('link',{name:'Q1',exact:true}).first();
  await reviewLink.focus(); await expect(reviewLink).toBeFocused();
- const contrast = () => page.locator('.debrief-card, .competency-review, .voice-report, .video-report').evaluateAll(cards => {
+ const contrast = () => page.locator('.review-summary, details.answer-card').evaluateAll(cards => {
    const luminance=(value:string)=>{const rgb=(value.match(/[\d.]+/g)??[]).slice(0,3).map(Number).map(n=>n/255).map(n=>n<=0.03928?n/12.92:((n+0.055)/1.055)**2.4);return 0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2];};
    return Math.min(...cards.flatMap(card=>{const background=luminance(getComputedStyle(card).backgroundColor);return [...card.querySelectorAll('.muted,th')].map(el=>{const foreground=luminance(getComputedStyle(el).color);return (Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05);});}));
  });
@@ -59,8 +63,10 @@ test('classification controls, frozen review and accessible competency history',
  await page.emulateMedia({colorScheme:'dark'});
  expect(await contrast()).toBeGreaterThanOrEqual(4.5);
  await page.screenshot({path:test.info().outputPath('integrated-review-dark.png'),fullPage:true});
- await page.getByText('내 답변으로 개선 틀 만들기' ,{exact:true}).click();
- await expect(page.getByText('내 답변에서 가져온 재료:',{exact:false})).toContainText('제가 역할을 나누고');
+ const answer=page.locator('details.answer-card').first();
+ await answer.locator(':scope > summary').click();
+ await answer.getByText('Answer Outline',{exact:true}).click();
+ await expect(answer.getByText('From your answer:',{exact:false})).toContainText('제가 역할을 나누고');
  const reviewRequests=observed.slice(reviewStart);
  expect(reviewRequests.filter(r=>r.method==='POST'&&/\/(coach|debrief)$/.test(r.path))).toEqual([]);
  const homeTaxonomy=observed.filter(r=>r.path==='/practice/taxonomy'&&r.method==='GET').length;
@@ -99,8 +105,12 @@ test('legacy debrief remains readable as history and is excluded from current in
    await route.fulfill({response,json:{...body,debrief_status:'done',debrief:{lesson:'보관한 이전 버전의 교훈',next_action:'이전 행동',moments:[],input_status:'legacy_unverified'}}});
  });
  await page.goto(`/practice/sessions/${s.id}`);
- await expect(page.locator('.integrated-coaching')).not.toContainText('보관한 이전 버전의 교훈');
- await page.getByText('기존 AI 디브리프의 근거와 원문',{exact:true}).click();
- await expect(page.getByText('보관한 이전 버전의 교훈',{exact:true})).toBeVisible();
- await expect(page.getByText('현재 답변과의 일치를 확인할 수 없어',{exact:false})).toBeVisible();
+ // The Summary keeps the earlier lesson as one read-only line and says it may not match
+ const lesson=page.getByTestId('summary-lesson');
+ await expect(lesson.locator('[lang="ko"]')).toHaveText('“보관한 이전 버전의 교훈”');
+ await expect(lesson).toContainText('may not match your current answers');
+ await page.locator('.review-summary .summary-details > summary').click();
+ // Current findings (coaching notes, charts) never repeat it; the rest of the old record stays readable
+ await expect(page.locator('.summary-details')).not.toContainText('보관한 이전 버전의 교훈');
+ await expect(page.locator('.earlier-review')).toContainText('이전 행동');
 });

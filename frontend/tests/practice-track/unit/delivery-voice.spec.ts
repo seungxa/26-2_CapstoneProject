@@ -119,6 +119,13 @@ test("edited transcript cannot be paired with the previous recording for text-de
   expect(edited.totalPacePerMin).toBeNull();
   expect(edited.activeCandidatePacePerMin).toBeNull();
   expect(edited.fillers).toEqual([]);
-  expect(edited.limitations.join(" ")).toContain("전사문이 바뀌어");
+  expect(edited.limitations.join(" ")).toContain("transcript changed");
+  expect(edited.limitations.join(" ")).not.toMatch(/[가-힣]/);
   voice.clearSessionVoice("edited");
+});
+
+test("limitations shown with voice numbers are English", () => {
+  const s = voice.summarizeVoice(fixture(), 10, "어, 저희는 음 문제를 해결했습니다");
+  expect(s.limitations.length).toBeGreaterThan(0);
+  for (const line of s.limitations) expect(line).not.toMatch(/[가-힣]/);
 });

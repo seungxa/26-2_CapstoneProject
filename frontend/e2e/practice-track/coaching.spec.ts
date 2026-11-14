@@ -52,29 +52,46 @@ test("submitted source → text answer → follow-up → evidence review → foc
   await page.getByLabel("Your answer", { exact: true }).fill("동일한 요청 1000개를 보내 제가 응답 시간을 측정했습니다. 평균 500ms에서 300ms로 감소했습니다.");
   await page.getByRole("button", { name: "Finish Answer" }).click();
   await page.getByRole("button", { name: "Finish & Review" }).click();
-  await expect(page.locator(".coaching-panel").first()).toContainText("기본 점검");
-  await expect(page.locator(".criterion").first()).toContainText("프로젝트에서 제가 개선했습니다.");
+  const cards = page.locator("details.answer-card");
+  await expect(cards).toHaveCount(2);
+  const first = cards.first();
+  const last = cards.last();
+  // The essay has numbers and the first answer has none, so its specificity needs work
+  await expect(first.locator(":scope > summary")).toContainText("Needs Work");
+  await first.locator(":scope > summary").click();
+  await expect(first.locator(".coaching-panel")).toContainText("Specificity");
+  await expect(first.locator(".criterion").first()).toContainText("프로젝트에서 제가 개선했습니다.");
   // 면접을 마치면 자동 디브리프가 아직 점검하지 않은 꼬리질문 답변도 기본 점검한다(P0). 그 작업이 끝난 뒤 이 답변의
-  // 전사문을 고쳐 보고서를 지우면, 두 번째 패널은 '답변 점검' 클릭(POST /coach)에서만 다시 생길 수 있다
+  // 전사문을 고쳐 보고서를 지우면, 두 번째 패널은 'Check Answer' 클릭(POST /coach)에서만 다시 생길 수 있다
   await expect(page.locator(".coaching-panel")).toHaveCount(2);
   const sessionId = page.url().split("/").at(-1);
   await expect.poll(async () => (await (await request.get(`${API}/practice/sessions/${sessionId}`)).json()).debrief_running).toBe(false);
-  const last = page.locator("section.card[id^=answer-]").last();
+  await last.locator(":scope > summary").click();
   const revised = "동일한 요청 1000개를 보내 제가 응답 시간을 측정했습니다. 평균 500ms에서 250ms로 감소했습니다.";
-  await last.getByLabel("전사문 (직접 고칠 수 있어요)").fill(revised);
-  await last.getByRole("button", { name: "저장", exact: true }).click();
+  await last.getByLabel("Transcript", { exact: true }).fill(revised);
+  await last.getByRole("button", { name: "Save", exact: true }).click();
   await expect(last.locator(".coaching-panel")).toHaveCount(0);
   await expect(page.locator(".coaching-panel")).toHaveCount(1);
+  // Wait on this answer's own button: it is enabled again only once its save has settled. (A page-wide .last()
+  // used to land on Q1's button while Q2's save was still busy.)
+  const check = last.getByRole("button", { name: "Check Answer", exact: true });
+  await expect(check).toBeEnabled();
   const coached = page.waitForResponse((r) => r.request().method() === "POST" && /\/practice\/answers\/[^/]+\/coach$/.test(r.url()));
-  await page.getByRole("button", { name: "답변 점검", exact: true }).last().click();
-  expect((await coached).status()).toBe(200);
+  await check.click();
+  const response = await coached;
+  expect(response.status()).toBe(200);
+  expect(response.url()).toContain(`/practice/answers/${(await last.getAttribute("id"))!.replace("answer-", "")}/coach`);
   await expect(page.locator(".coaching-panel")).toHaveCount(2);
   await expect(last.locator(".coaching-panel .criterion").first()).toContainText(revised);
-  await expect(page.getByRole("button", { name: "보완 항목 1개 다시 연습" })).toBeEnabled();
+  const redrill = page.locator(".review-summary").getByRole("button", { name: "Practice Weak Answers Again", exact: true });
+  await expect(redrill).toBeEnabled();
+  // The re-drill reason comes from the server as "Specificity 보완" and shows in English
+  await page.locator(".review-summary .summary-details > summary").click();
+  await expect(page.locator(".weak-list .chip")).toHaveText(["Specificity: Needs Work"]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   // 문서 이미지(docs/screenshots/)는 UPDATE_DOC_SCREENSHOTS=1일 때만 덮어쓴다. 기본은 test-results/
   await page.screenshot({ path: docScreenshotPath(`coaching-review-${testInfo.project.name}`, (f) => testInfo.outputPath(f)), fullPage: true });
-  await page.getByRole("button", { name: "보완 항목 1개 다시 연습" }).click();
+  await redrill.click();
   await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
   await expect(page.getByRole("heading", { level: 1, name: /^Question 1 of \d+$/ })).toBeVisible();
   const drill = await (await request.get(`${API}/practice/sessions/${page.url().split("/").at(-2)}`)).json();
@@ -108,7 +125,9 @@ test("recording upload failure retains audio for retry and blocks advancing", as
   await page.getByLabel("Transcript (editable)", { exact: true }).fill("직접 입력한 녹음 답변입니다.");
   await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page.locator("audio")).toHaveCount(1);
-  await expect(page.getByLabel("전사문 (직접 고칠 수 있어요)")).toHaveValue("직접 입력한 녹음 답변입니다.");
+  await page.locator("details.answer-card > summary").click();
+  await expect(page.locator("audio")).toBeVisible();
+  await expect(page.getByLabel("Transcript", { exact: true })).toHaveValue("직접 입력한 녹음 답변입니다.");
   // 서버는 이번 실행의 임시 녹음 폴더에 저장했다(개발용 backend/recordings/가 아니라)
   expect(readdirSync(join(recordingsDir(), DEV_USER_ID, session.id))).toHaveLength(1);
 });
@@ -141,7 +160,7 @@ test("permanent audio error can recover to text and unfinished last answer can r
   // Save this last answer without finishing, then return through the review UI.
   await page.getByRole("button", { name: "Save Answer" }).click();
   await page.getByRole("link", { name: "End Practice" }).click();
-  await page.getByRole("link", { name: "면접 이어서 마치기" }).click();
+  await page.getByRole("link", { name: "Finish Practice" }).click();
   await expect(page.getByLabel("Your answer", { exact: true })).toHaveValue("제가 직접 작성한 대체 답변입니다.");
   await page.getByRole("button", { name: "Finish & Review" }).click();
   await expect(page).toHaveURL(new RegExp(`/practice/sessions/${session.id}$`));
@@ -182,6 +201,6 @@ test('saving an edited answer holds review navigation until the real PATCH compl
   await review.evaluate(element=>(element as HTMLAnchorElement).click());await expect(page).toHaveURL(/\/run$/);
  }finally{release();}
  await expect(review).toHaveAttribute('aria-disabled','false');await review.click();
- await expect(page.getByRole('link',{name:'면접 이어서 마치기',exact:true})).toBeVisible();
+ await expect(page.getByRole('link',{name:'Finish Practice',exact:true})).toBeVisible();
  const saved=await(await request.get(`${API}/practice/sessions/${session.id}`)).json();expect(saved.answers[0].transcript).toBe('저장을 마친 뒤 회고에 표시할 새 답변입니다.');
 });

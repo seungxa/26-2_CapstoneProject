@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { competencyCoverage, groundedOutline, integratedCoaching, answerComments, answerCoaching } from '../../../src/features/practice-track/review/coaching';
+import { competencyCoverage, groundedOutline, integratedCoaching, answerComments, answerCoaching, localDeliveryFacts } from '../../../src/features/practice-track/review/coaching';
+import * as voice from '../../../src/features/practice-track/delivery/voice';
+import * as metrics from '../../../src/features/practice-track/video/metrics';
 import type { PracticeAnswer, PracticeSession } from '../../../src/features/practice-track/types';
 const answer = (over: Partial<PracticeAnswer> = {}) => ({ id:'a', order_no:1, transcript:'제가 일정 관리를 맡고 매일 진행 상황을 확인했습니다.', recorded_at:null, question:{text:'협업 경험',category:'인성',competency_keys:['teamwork']}, coaching_report:null, question_classification:null, ...over } as PracticeAnswer);
 const session = (answers: PracticeAnswer[]) => ({ id:'s',answers,mode:'free',answer_sec:90,debrief:null,redrill:[] } as unknown as PracticeSession);
@@ -21,23 +23,26 @@ test('only actual transcript quotes count as observed evidence; changed transcri
 });
 test('coaching has no invented praise or measurements with absent evidence; outline uses verbatim words and placeholders', () => {
  const a=answer(); const result=integratedCoaching(session([a]));
- expect(result.script).toContain('전사문 1개');
- expect(result.script).not.toMatch(/뛰어나|자신감|분당|시선|성공적/);
+ expect(result.script).toContain('1 transcript from 1 answer');
+ expect(result.script).not.toMatch(/excellent|confiden|per minute|gaze|eye contact|success/i);
+ expect(result.script).not.toMatch(/[가-힣]/); // app sentences are English; only quoted answers are Korean
  expect(result.actions.length).toBeLessThanOrEqual(3);
  expect(groundedOutline(a).join(' ')).toContain(a.transcript!);
- expect(groundedOutline(a).join(' ')).toContain('[실제로'); expect(answerComments(a).length).toBe(0);
+ expect(groundedOutline(a).join(' ')).toContain('[the'); expect(answerComments(a).length).toBe(0);
+ expect(groundedOutline(a).join(' ').replace(a.transcript!,'')).not.toMatch(/[가-힣]/);
 });
 test('prioritises grounded core coaching over generic preparation and refers to answer source', () => {
  const a=answer({coaching_report:{criteria:[{key:'specificity',label:'구체성',status:'보완',reason:'결과 설명이 필요해요',answer_quote:'제가 일정 관리를 맡고',source_quote:'',source_version_id:null}],next_action:'실제 결과를 한 문장으로 덧붙이세요'} as never});
  const r=integratedCoaching(session([a])); expect(r.script).toContain('Q1'); expect(r.script).toContain('제가 일정 관리를 맡고');
- expect(r.actions[0].text).toContain('실제 결과'); expect(answerComments(a)[0].source).toBe('답변 코칭 · 구체성');
+ expect(r.actions[0].text).toContain('실제 결과'); expect(answerComments(a)[0].source).toBe('Answer check · Specificity');
+ expect(answerComments(a)[0]).toMatchObject({key:'specificity',status:'보완',text:'결과 설명이 필요해요'});
 });
 test('coaching groups a shared content pattern rather than concatenating each criterion', () => {
  const core={criteria:[{key:'specificity',label:'구체성',status:'보완',reason:'결과가 빠졌어요',answer_quote:'제가 일정 관리를 맡고'}],next_action:'실제로 확인한 결과를 추가하기'};
  const a=answer({coaching_report:core as never});
  const b={...a,id:'b',order_no:2};
  const script=integratedCoaching(session([a,b])).script;
- expect(script).toContain('구체성 보완이 2개 답변');
+ expect(script).toContain('Specificity needs work in 2 answers');
  expect(script.match(/결과가 빠졌어요/g)?.length).toBe(1);
 });
 
@@ -50,10 +55,10 @@ test('coverage separates untagged snapshots and followups; narrative stays bound
 });
 
 test('per-answer coaching joins one priority with measured delivery and no invented strength', () => {
- const result=answerCoaching(answer(),[{answerId:'a',order:1,source:'브라우저 카메라 표본',text:'분석 5초 중 프레임 밖 2초',action:'카메라 위치 점검'}]);
- expect(result.script).toContain('분석 5초 중 프레임 밖 2초');
- expect(result.priority).toBe('카메라 위치 점검');
- expect(result.script).not.toMatch(/훌륭|좋았|충분/);
+ const result=answerCoaching(answer(),[{answerId:'a',order:1,kind:'camera',source:'Camera',text:'Face partly out of view for 2.0s of 5s analyzed.',action:'Check the camera position'}]);
+ expect(result.script).toContain('Face partly out of view for 2.0s of 5s analyzed.');
+ expect(result.priority).toBe('Check the camera position');
+ expect(result.script).not.toMatch(/great|well done|excellent|meets/i);
 });
 
 test('answer action belongs once to the whole answer, not to every weak criterion', () => {
@@ -68,10 +73,10 @@ test('session themes use distinct affected answers then relevance before specifi
  const a=answer({coaching_report:{criteria:[weak('specificity'),weak('relevance')],next_action:'한 행동'} as never});
  const b=answer({id:'b',order_no:2,coaching_report:{criteria:[weak('relevance')],next_action:'다른 행동'} as never});
  const r=integratedCoaching(session([a,b]));
- expect(r.script).toContain('질문 적합성 보완이 2개 답변');
+ expect(r.script).toContain('Relevance needs work in 2 answers');
  expect(r.actions.length).toBeLessThanOrEqual(2);
  const tied=integratedCoaching(session([a]));
- expect(tied.script).toContain('질문 적합성 보완이 1개 답변');
+ expect(tied.script).toContain('Relevance needs work in 1 answer');
 });
 
 test('unverified historical coaching is excluded from current comments, priorities, and observations', () => {
@@ -82,19 +87,35 @@ test('unverified historical coaching is excluded from current comments, prioriti
 });
 
 test('outlines follow each question type and keep unknown questions neutral', () => {
- const expected:Record<string,string>={behavioral:'상황',situational:'가정',knowledge:'개념',motivation:'지원',project_deep_dive:'선택',self_description:'소개'};
+ const expected:Record<string,string>={behavioral:'Situation and task',situational:'Assumptions',knowledge:'Concept',motivation:'Why you applied',project_deep_dive:'Choices and role',self_description:'Main point'};
  for(const [type,word] of Object.entries(expected)) {
   const lines=groundedOutline(answer({question_classification:{...snapshot,question_type:type}}));
   expect(lines.join(' ')).toContain(word);
   expect(lines.join(' ')).toContain(answer().transcript!);
  }
  const unknown=groundedOutline(answer()).join(' ');
- expect(unknown).not.toContain('결과와 배운 점');
- expect(unknown).toContain('질문이 요구하는');
+ expect(unknown).not.toContain('Result and lesson');
+ expect(unknown).toContain('What the question asks');
 });
 
 test('current report keeps its single next action even when every criterion defers without a quote', () => {
  const a=answer({coaching_report:{input_status:'current',criteria:[{key:'relevance',label:'질문 적합성',status:'판단유보',reason:'근거가 부족해요',answer_quote:''}],next_action:'질문이 요구하는 답을 한 문장으로 정리하기'} as never});
  expect(answerCoaching(a).priority).toBe('질문이 요구하는 답을 한 문장으로 정리하기');
  expect(answerCoaching(a).comments).toEqual([]);
+});
+
+test('delivery facts from this tab are English with a kind for each source', () => {
+ const a=answer({id:'df',recorded_at:'r1'});
+ const s={...session([a]),id:'df-session'} as PracticeSession;
+ expect(localDeliveryFacts(s)).toEqual([]); // nothing measured in this tab
+ const energy=[...Array(20).fill(0.003),...Array(25).fill(0.08),...Array(25).fill(0.003),...Array(30).fill(0.09)].map((rms,i)=>({t:i/10,rms}));
+ voice.saveVoiceSegment('df-session','df',voice.summarizeVoice(energy,10,a.transcript!),'r1',a.transcript);
+ metrics.saveVideoSegment('df-session','df',metrics.summarizeSegment(Array.from({length:12},(_,i)=>({t:i*250,state:'edge' as const})),{start:0,end:3000}),'r1');
+ try {
+  const facts=localDeliveryFacts(s);
+  expect(facts.map(f=>[f.kind,f.source])).toEqual([['voice','Voice'],['camera','Camera']]);
+  expect(facts.every(f=>f.action)).toBe(true); // a long pause and >=1s partly out of view each suggest one action
+  for(const f of facts) expect(`${f.text} ${f.action}`).not.toMatch(/[가-힣]/);
+  expect(facts[1].text).toBe('Face partly out of view for 3.0s of 3s analyzed.');
+ } finally { voice.clearSessionVoice('df-session'); metrics.clearSessionVideo('df-session'); }
 });

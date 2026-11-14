@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { label, type LabelKind } from "../../../src/features/practice-track/labels";
+import { focusLabel, label, langOf, needsWorkReason, reasonLabel, type LabelKind } from "../../../src/features/practice-track/labels";
 
 const TABLE: Record<LabelKind, Record<string, string>> = {
   category: { 인성: "Personality", 직무: "Job Fit", 기업: "Company", 상황: "Situational", 인적성: "Aptitude" },
@@ -41,4 +41,29 @@ test("unknown values fall back to the stored value", () => {
   expect(label("stage", null)).toBe("");
   expect(label("stage", undefined)).toBe("");
   expect(label("verdict", "toString")).toBe("toString");
+});
+
+test("re-drill reasons and focus names show in English for new and old records", () => {
+  // Stored reasons stay "{label} 보완" / "자기평가 N점" (backend debrief.py); only the screen name changes
+  expect(reasonLabel("Specificity 보완")).toBe("Specificity: Needs Work");
+  expect(reasonLabel("구체성 보완")).toBe("Specificity: Needs Work");
+  expect(reasonLabel("AI · 질문 적합성 보완")).toBe("AI · Relevance: Needs Work");
+  expect(reasonLabel("Match With Submitted Essay 보완")).toBe("Matches Your Essay: Needs Work");
+  expect(reasonLabel("제출본 연결 보완")).toBe("Matches Your Essay: Needs Work");
+  expect(reasonLabel("자기평가 2점")).toBe("Self-rating 2");
+  expect(reasonLabel("새 기준 보완")).toBe("새 기준: Needs Work");
+  expect(reasonLabel("알 수 없는 이유")).toBe("알 수 없는 이유");
+  expect(needsWorkReason("구체성 보완")).toBe(true);
+  expect(needsWorkReason("Specificity 보완")).toBe(true);
+  expect(needsWorkReason("자기평가 1점")).toBe(false);
+  expect(focusLabel("구체성")).toBe("Specificity");
+  expect(focusLabel("Relevance")).toBe("Relevance");
+  expect(focusLabel("자기평가 1점")).toBe("Self-rating 1");
+  expect(focusLabel("기타 초점")).toBe("기타 초점");
+});
+
+test("langOf marks only text with Hangul as Korean", () => {
+  expect(langOf("결과를 확인한 방법")).toBe("ko");
+  expect(langOf("Explain how you measured it.")).toBeUndefined();
+  expect(langOf(null)).toBeUndefined();
 });

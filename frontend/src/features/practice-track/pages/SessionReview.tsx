@@ -1,46 +1,69 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ApiError, api } from "../api";
 import IntegratedCoaching, { AnswerGuidance, CompetencyPanel } from "../components/IntegratedCoaching";
 import { FrozenClassification } from "../components/ClassificationControls";
-import VoiceReportCard from "../components/VoiceReportCard";
+import VoiceDelivery from "../components/VoiceReportCard";
+import CameraDelivery from "../components/VideoReportCard";
 import { clearSessionVoice, clearVoiceSegment } from "../delivery/voice";
 import Stars from "../components/Stars";
 import CoachingPanel from "../components/CoachingPanel";
 import ConsentPanel from "../components/ConsentPanel";
 import InterviewContext from "../components/InterviewContext";
 import ReviewInsights from "../components/ReviewInsights";
-import VideoReportCard from "../components/VideoReportCard";
+import { label, langOf, needsWorkReason, reasonLabel } from "../labels";
+import { integratedCoaching, localDeliveryFacts } from "../review/coaching";
+import { answerVerdict, sessionInsights, stateName, type AnswerMetrics } from "../review/insights";
 import type { CoachingRubric, InterviewContext as Context, PracticeAnswer, PracticeSession, PracticeSettings } from "../types";
 import { clearSessionVideo, clearVideoSegment } from "../video/metrics";
 
-const STT_LABEL = { none: "녹음 없음", done: "음성 인식 완료", failed: "음성 인식 재시도 필요", unavailable: "자동 전사 미연결" } as const;
 const POLL_MS = 2500;
 const POLL_GIVE_UP_MS = 120_000;
+/** Said once, in the Summary (design 4.2 rule 7) */
+const LIMIT_LINE = "Rule-based checks, not a hiring assessment.";
 
 /** 자동 삭제까지 남은 날짜(올림) */
 const daysLeft = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const length = (sec: number) => {
+  const s = Math.round(sec);
+  return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+};
 
-/** 음성 인식 상태. 전사하지 못한 녹음의 원본이 없으면 다시 시도할 수 없으니 '재시도 필요'라고 하지 않는다 */
-function sttLabel(a: PracticeAnswer) {
-  if (a.audio_available || (a.stt_status !== "failed" && a.stt_status !== "unavailable")) return STT_LABEL[a.stt_status];
-  const what = a.stt_status === "failed" ? "음성 인식 실패" : "자동 전사 안 됨";
-  return a.audio_deleted_at ? `${what} · 원본 녹음 삭제됨` : what;
+/** The folded line's verdict: the current checks, or that only an earlier record exists */
+function verdictName(a: PracticeAnswer, m: AnswerMetrics | undefined) {
+  if (!m || (!m.recorded && !m.hasTranscript)) return "Not Answered";
+  const v = answerVerdict(m);
+  if (v === "점검 전" && (a.coaching_report?.input_status === "legacy_unverified" || a.ai_feedback)) return "Earlier Check";
+  return stateName(v);
 }
 
-function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onReportsChanged, onTranscriptDirty, staleForDraft, hasEarlierDraft }: {
+/** Transcription problems only, next to the transcript. A normal recording says nothing */
+function recordingNote(a: PracticeAnswer, hasTranscript: boolean): string | null {
+  const failed = a.stt_status === "failed" || a.stt_status === "unavailable";
+  const what = a.stt_status === "failed" ? "Couldn't transcribe this recording" : "This recording wasn't transcribed";
+  if (failed && a.audio_available) return `${what}. Retry, or type the transcript below.`;
+  if (failed && !hasTranscript) return `${what}${a.audio_deleted_at ? ", and the recording was deleted" : ""}. Type the transcript below.`;
+  if (!failed && a.audio_deleted_at && !a.audio_available && !hasTranscript) return "The recording was deleted, and there's no transcript.";
+  return null;
+}
+
+function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId, onReportsChanged, onTranscriptDirty, staleForDraft, hasEarlierDraft }: {
   onTranscriptDirty:(id:string,dirty:boolean)=>void;
   staleForDraft:boolean;
   hasEarlierDraft:boolean;
   sessionId:string;
   onReportsChanged:()=>void;
   a: PracticeAnswer;
+  verdict: string;
   context: Context | null;
   rubric: CoachingRubric | null;
   onChange: (a: PracticeAnswer) => void;
   /** 실패했을 때 서버 상태로 다시 맞춘다(중간 단계가 이미 저장됐을 수 있다) */
   onReload: () => void;
 }) {
+  const ids = useId();
   const [audio, setAudio] = useState<string | null>(null);
   const [audioErr, setAudioErr] = useState<string | null>(null);
   const [transcript, setTranscript] = useState(a.transcript ?? "");
@@ -107,6 +130,8 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
   const hasTranscript = !!a.transcript?.trim();
   // 한국어 발화 속도 참고용: 전사 글자 수 / 분
   const cpm = !transcriptDirty && a.recording_transcript_current === true && a.transcript && a.duration_sec ? Math.round((a.transcript.replace(/\s/g, "").length / a.duration_sec) * 60) : null;
+  const facts = localDeliveryFacts({ id: sessionId, answers: [a] } as PracticeSession);
+  const sttNote = recordingNote(a, hasTranscript);
 
   const retranscribe = () => act(async () => {
     if (dirty) onChange(await api.reflect(a.id, reflectionPatch));
@@ -114,7 +139,7 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
   }, true);
 
   const removeAudio = () => {
-    const ask = hasTranscript ? "원본 녹음을 지울까요? 전사문은 남아요." : "전사문이 없어 지우면 이 답변 내용이 남지 않아요. 원본 녹음을 지울까요?";
+    const ask = hasTranscript ? "Delete the original recording? The transcript stays." : "There's no transcript, so nothing from this answer will be left. Delete the original recording?";
     if (confirm(ask)) act(async () => {
       const clear = () => {clearVoiceSegment(sessionId,a.id);clearVideoSegment(sessionId,a.id);onReportsChanged();};
       try { const next=await api.deleteAudio(a.id); if(!next.audio_available) clear(); return next; }
@@ -126,178 +151,107 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
     });
   };
 
+  const rating = a.self_rating;
+  const checks = !staleForDraft && a.coaching_report
+    ? <CoachingPanel report={a.coaching_report} context={context} rubric={rubric} showNextAction={a.coaching_report.input_status === 'legacy_unverified'} />
+    : null;
   return (
-    <section className="card" id={`answer-${a.id}`}>
-      <div className="row">
-        <h3 className="grow" style={{ margin: 0 }}>Q{a.order_no}. {a.question.text}</h3>
-        <span className="chip">{a.question.category}</span>
-        {a.parent_answer_id && <span className="chip accent">꼬리질문</span>}
-      </div>
-      <FrozenClassification snapshot={a.question_classification}/>
-      <div className="spacer" />
-      {a.audio_available ? (
-        <>
-          {audio ? <audio controls src={audio} style={{ width: "100%" }} /> : <p className="muted small">{audioErr ?? "녹음을 불러오는 중…"}</p>}
-          <div className="row small muted">
-            {a.audio_expires_at && (
-              <span className="grow">{daysLeft(a.audio_expires_at) >= 1 ? `${daysLeft(a.audio_expires_at)}일 뒤 자동 삭제` : "곧 자동 삭제"}</span>
-            )}
-            <button className="small danger" disabled={busy} onClick={removeAudio}>녹음 삭제</button>
-          </div>
-        </>
-      ) : a.audio_deleted_at ? (
-        <p className="muted small">{hasTranscript ? "원본 녹음은 지웠어요. 전사문만 남겨요." : "원본 녹음은 지웠어요."}</p>
-      ) : (
-        <p className="muted small">녹음이 없습니다.</p>
-      )}
-      <div className="row small muted">
-        <span>{sttLabel(a)}</span>
-        {a.duration_sec != null && <span>· {Math.round(a.duration_sec)}초</span>}
-        {cpm != null && <span>· 분당 약 {cpm}자</span>}
-        {a.audio_available && (a.stt_status === "failed" || a.stt_status === "unavailable") && <button disabled={busy} onClick={retranscribe}>음성 인식 다시 시도</button>}
-      </div>
-      {/* 다시 불러온 답변에 원본이 없으면(그 사이 지움) 동의해도 다시 전사할 수 없으니 동의를 묻지 않는다 */}
-      {needConsent && a.audio_available && (
-        <ConsentPanel
-          retentionDays={needConsent.retention_days}
-          initialKeepAudio={needConsent.keep_audio}
-          notice="Agree first to transcribe this answer again."
-          buttonLabel="Agree & Retry Transcription"
-          onConsented={retranscribe}
-        />
-      )}
-      <div className="spacer" />
-      <label>전사문 (직접 고칠 수 있어요)
-        <textarea disabled={busy} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="전사문이 없으면 기억나는 대로 적어 두세요." />
-      </label>
-      <div className="spacer" />
-      <div className="row">
-        <span className="small muted">자기 평가</span>
-        <Stars value={a.self_rating} disabled={busy} onChange={(v) => act(() => api.reflect(a.id, { self_rating: v }))} />
-      </div>
-      <label>회고 메모
-        <textarea style={{ minHeight: 70 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="다음엔 무엇을 바꿀지" />
-      </label>
-      <div className="spacer" />
-      <div className="row">
-        <button className="primary" disabled={busy || !dirty} onClick={() => act(() => api.reflect(a.id, reflectionPatch))}>저장</button>
-        <button disabled={busy || !transcript.trim() || hasEarlierDraft} onClick={() => act(async () => {
-          if (dirty) await api.reflect(a.id, reflectionPatch);
-          return api.coach(a.id);
-        })}>{busy ? "점검 중…" : "답변 점검"}</button>
-      </div>
-      {transcriptDirty && <p role="status" data-testid="unsaved-transcript">전사문에 저장하지 않은 수정이 있어요. 답변을 저장하면 현재 대화 기준으로 다시 점검할 수 있어요.</p>}
-      {!transcriptDirty && staleForDraft && <p className="small muted">앞선 전사문에 저장하지 않은 수정이 있어 대화에 의존하는 코칭을 잠시 제외했어요.</p>}
-      {noteDirty && !transcriptDirty && <p className="small muted">회고 메모에 저장하지 않은 수정이 있어요. 답변 코칭은 저장된 전사문 기준이에요.</p>}
-      {!staleForDraft && <AnswerGuidance a={a} sessionId={sessionId}/>}
-      {!staleForDraft && a.coaching_report && <CoachingPanel report={a.coaching_report} context={context} rubric={rubric} showNextAction={a.coaching_report.input_status === 'legacy_unverified'} />}
-      {!staleForDraft && a.ai_feedback && !a.coaching_report && (
-        <>
-          <div className="spacer" />
-          <div className="card" style={{ marginBottom: 0 }}>
-            <span className="chip accent">AI 생성</span>
-            <div style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{a.ai_feedback}</div>
-          </div>
-        </>
-      )}
-      {err && <p className="err">{err}</p>}
-    </section>
-  );
-}
+    <details className="card answer-card" id={`answer-${a.id}`}>
+      <summary>
+        <span className="answer-q"><b>Q{a.order_no}</b> <span className="answer-q-text" lang="ko">{a.question.text}</span></span>
+        <span className="answer-meta">
+          {verdict}
+          {rating != null && <> · <span className="answer-stars" role="img" aria-label={`Self-rating ${rating} of 5`}>{"★".repeat(rating)}{"☆".repeat(5 - rating)}</span></>}
+        </span>
+      </summary>
+      <div className="answer-body">
+        <div className="row small answer-tags">
+          <span className="chip">{label("category", a.question.category)}</span>
+          {a.parent_answer_id && a.question_classification?.question_role !== "followup" && <span className="chip accent">Follow-up</span>}
+        </div>
+        <FrozenClassification snapshot={a.question_classification}/>
 
-/** 세션을 마치면 자동으로 도는 디브리프 작업(답변 기본 점검). 새 세션 요약은 만들지 않고, 예전 AI 디브리프는 읽기 전용으로 보인다. */
-function DebriefCard({ s, gaveUp, busy, err, onRetry, pauseContent=false }: {
-  s: PracticeSession;
-  pauseContent?: boolean;
-  gaveUp: boolean;
-  busy: boolean;
-  err: string | null;
-  /** 작업이 사라졌거나 오래 걸려 확인을 멈춘 뒤의 '다시 시도' */
-  onRetry: () => void;
-}) {
-  const d = s.debrief;
-  const status = s.debrief_status;
-  const hasCoaching = s.answers.some((a) => a.coaching_report);
-  // 'pending'인데 서버가 도는 작업이 없다고 하면 작업이 사라진 것(서버 재시작 등)이다: 기다리게 하지 않고 바로 다시 시도를 보인다
-  const lost = status === "pending" && !s.debrief_running;
-  const noKeyText = (
-    <p className="muted small" style={{ margin: 0 }}>
-      OpenAI 키가 없어 자동 디브리프는 꺼져 있어요. 면접을 마치면 전사문이 있는 답변마다 기본 점검이 붙고, 보완 항목이 있거나 자기평가가 1~2점인
-      답변은 아래에서 다시 연습할 수 있어요.
-    </p>
-  );
+        <section className="answer-section">
+          <h3 id={`${ids}-transcript`}>Transcript</h3>
+          {a.audio_available && (
+            <div className="answer-audio">
+              {audio ? <audio controls src={audio} /> : <p className="muted small">{audioErr ? `Couldn't load the recording. ${audioErr}` : "Loading the recording…"}</p>}
+              <div className="row small muted">
+                {a.audio_expires_at && (
+                  <span className="grow">{daysLeft(a.audio_expires_at) >= 1 ? `Deleted automatically in ${plural(daysLeft(a.audio_expires_at), "day")}` : "Deleted automatically soon"}</span>
+                )}
+                <button className="small danger" disabled={busy} onClick={removeAudio}>Delete Recording</button>
+              </div>
+            </div>
+          )}
+          {sttNote && (
+            <div className="row small warn-text">
+              <span className="grow">{sttNote}</span>
+              {a.audio_available && (a.stt_status === "failed" || a.stt_status === "unavailable") && <button disabled={busy} onClick={retranscribe}>Retry Transcription</button>}
+            </div>
+          )}
+          {/* 다시 불러온 답변에 원본이 없으면(그 사이 지움) 동의해도 다시 전사할 수 없으니 동의를 묻지 않는다 */}
+          {needConsent && a.audio_available && (
+            <ConsentPanel
+              retentionDays={needConsent.retention_days}
+              initialKeepAudio={needConsent.keep_audio}
+              notice="Agree first to transcribe this answer again."
+              buttonLabel="Agree & Retry Transcription"
+              onConsented={retranscribe}
+            />
+          )}
+          <textarea aria-labelledby={`${ids}-transcript`} lang="ko" disabled={busy} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Type what you said." />
+          {transcriptDirty && <p role="status" data-testid="unsaved-transcript" className="small warn-text">Unsaved changes. Save, or undo them, to see this answer's checks again.</p>}
+        </section>
 
-  return (
-    <section className="card debrief-card">
-      <IntegratedCoaching s={s} paused={pauseContent}/>
-      <div className="row">
-        <h2 className="grow" style={{ margin: 0 }}>세션 디브리프</h2>
-        {status === "done" && d && <span className="chip accent">AI 생성</span>}
+        <section className="answer-section">
+          <h3>Checks</h3>
+          {staleForDraft && <p className="small muted">{transcriptDirty ? "Paused while the transcript has unsaved changes." : "Paused while an earlier answer has unsaved changes."}</p>}
+          {!staleForDraft && <AnswerGuidance a={a} sessionId={sessionId}>{checks}</AnswerGuidance>}
+          {!staleForDraft && a.ai_feedback && !a.coaching_report && (
+            <div className="ai-feedback">
+              <span className="chip accent">Earlier AI Feedback</span>
+              <p lang={langOf(a.ai_feedback)}>{a.ai_feedback}</p>
+            </div>
+          )}
+          {!staleForDraft && !a.coaching_report && !a.ai_feedback && <p className="small muted">{hasTranscript ? "Not checked yet." : "Add a transcript to check this answer."}</p>}
+        </section>
+
+        {(a.recorded_at || a.duration_sec != null) && (
+          <section className="answer-section">
+            <h3>Delivery</h3>
+            {a.duration_sec != null && <p className="small">Length {length(a.duration_sec)}{cpm != null && ` · about ${cpm} characters per minute`}</p>}
+            <VoiceDelivery sessionId={sessionId} a={a} transcriptDirty={transcriptDirty} action={facts.find((f) => f.kind === "voice")?.action} onCleared={onReportsChanged} />
+            <CameraDelivery sessionId={sessionId} a={a} action={facts.find((f) => f.kind === "camera")?.action} onCleared={onReportsChanged} />
+          </section>
+        )}
+
+        <section className="answer-section">
+          <h3>Self Rating & Note</h3>
+          <Stars value={rating} disabled={busy} onChange={(v) => act(() => api.reflect(a.id, { self_rating: v }))} />
+          <label htmlFor={`${ids}-note`} className="note-label">Note</label>
+          <textarea id={`${ids}-note`} lang="ko" className="note" value={note} onChange={(e) => setNote(e.target.value)} />
+          {noteDirty && !transcriptDirty && <p className="small muted">Your note isn't saved yet.</p>}
+        </section>
+
+        <div className="row answer-actions">
+          <button disabled={busy || !dirty} onClick={() => act(() => api.reflect(a.id, reflectionPatch))}>Save</button>
+          <button disabled={busy || !transcript.trim() || hasEarlierDraft} onClick={() => act(async () => {
+            if (dirty) await api.reflect(a.id, reflectionPatch);
+            return api.coach(a.id);
+          })}>Check Answer</button>
+          {busy && <span className="small muted" role="status">One moment…</span>}
+        </div>
+        {err && <p className="err" role="alert">{err}</p>}
       </div>
-      <div className="spacer" />
-      {status === "pending" &&
-        (lost || gaveUp ? (
-          <div className="row">
-            <span className="small muted grow">{lost ? "디브리프 작업이 중간에 멈췄어요." : "디브리프가 오래 걸리고 있어요."}</span>
-            <button disabled={busy} onClick={onRetry}>다시 시도</button>
-          </div>
-        ) : (
-          <p className="muted small" role="status" style={{ margin: 0 }}>답변을 점검하고 세션 디브리프를 만드는 중이에요…</p>
-        ))}
-      {status === "done" && d && (
-        <details><summary>기존 AI 디브리프의 근거와 원문</summary>
-          {d.input_status === "legacy_unverified" && <p className="warn-text">이전 버전 또는 분류 기능을 끈 상태의 보관된 요약이에요. 현재 답변과의 일치를 확인할 수 없어 통합 코칭의 근거로 사용하지 않아요.</p>}
-          {d.lesson && (
-            <>
-              <div className="small muted">핵심 교훈</div>
-              <p style={{ marginTop: 2, fontWeight: 600 }}>{d.lesson}</p>
-            </>
-          )}
-          {d.next_action && (
-            <>
-              <div className="small muted">다음 행동</div>
-              <p style={{ marginTop: 2 }}>{d.next_action}</p>
-            </>
-          )}
-          {d.moments.length > 0 && (
-            <>
-              <div className="small muted">주목할 순간</div>
-              <ul className="plain">
-                {d.moments.map((m, i) => (
-                  <li key={i}>
-                    <a href={`#answer-${m.answer_id}`} className="small">Q{m.order_no}</a>
-                    <blockquote className="quote">“{m.quote}”</blockquote>
-                    {m.why && <div className="small">{m.why}</div>}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <div className="row">
-            <span className="small muted grow">AI 요약은 참고용이에요. 지금은 OpenAI 키가 없어 다시 만들 수 없어요.</span>
-          </div>
-        </details>
-      )}
-      {status === "failed" && (
-        <>
-          <p className="err" style={{ marginTop: 0 }}>디브리프를 만들지 못했어요.{hasCoaching && " 답변 코칭 결과는 아래 답변에 남아 있어요."}</p>
-          {noKeyText}
-        </>
-      )}
-      {(status === "unavailable" || status === "none") && (
-        <>
-          {noKeyText}
-          {s.debrief_running && !gaveUp && <p className="muted small" role="status">답변을 기본 점검하는 중이에요…</p>}
-        </>
-      )}
-      {err && <p className="err">{err}</p>}
-    </section>
+    </details>
   );
 }
 
 export default function SessionReview() {
   const { id = "" } = useParams();
   const nav = useNavigate();
+  const summaryTitle = useId();
   const [,refreshDelivery]=useState(0);
   const [s, setS] = useState<PracticeSession | null>(null);
   const [refreshPending, setRefreshPending] = useState(false);
@@ -307,6 +261,7 @@ export default function SessionReview() {
   const onTranscriptDirty = useCallback((answerId:string,dirty:boolean) => setDirtyTranscripts(current => current[answerId]===dirty ? current : {...current,[answerId]:dirty}), []);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [redrillErr, setRedrillErr] = useState<string | null>(null);
   const [rubric, setRubric] = useState<CoachingRubric | null>(null);
   const [gaveUp, setGaveUp] = useState(false);
   const [cardBusy, setCardBusy] = useState(false);
@@ -345,6 +300,7 @@ export default function SessionReview() {
     setRefreshPending(false);
     setRefreshError(null);
     setErr(null);
+    setRedrillErr(null);
     setGaveUp(false);
     setCardErr(null);
     load().catch((e) => setErr(e.message));
@@ -357,8 +313,24 @@ export default function SessionReview() {
     api.rubric().then(setRubric).catch(() => {});
   }, []);
 
+  // A link to #answer-… (from the Summary, the charts or a reload with that address) opens the folded card first
+  const loaded = !!s;
+  useEffect(() => {
+    if (!loaded) return;
+    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target instanceof HTMLDetailsElement && target.classList.contains("answer-card")) {
+      target.open = true;
+      target.scrollIntoView();
+    }
+  }, [loaded]);
+  const openLinkedAnswer = (e: MouseEvent) => {
+    const href = (e.target as Element).closest?.('a[href^="#answer-"]')?.getAttribute("href");
+    const target = href ? document.getElementById(href.slice(1)) : null;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+  };
+
   // 답변 점검·디브리프 작업이 도는 동안 2.5초마다 확인하고, 2분이 지나면 멈춘다.
-  // 'pending'이어도 서버가 도는 작업이 없다고 하면(작업이 사라짐) 기다리지 않는다: 카드가 바로 '다시 시도'를 보인다
+  // 'pending'이어도 서버가 도는 작업이 없다고 하면(작업이 사라짐) 기다리지 않는다: 요약이 바로 'Try Again'을 보인다
   const waiting = !!s?.debrief_running;
   useEffect(() => {
     if (!waiting || gaveUp) return;
@@ -392,7 +364,7 @@ export default function SessionReview() {
       setCardBusy(false);
     }
   };
-  // '다시 시도'(작업이 사라졌거나 확인을 멈춘 뒤): 먼저 지금 상태를 다시 확인한다. 작업이 아직 돌고 있으면(마지막 진행 신호가 5분 안)
+  // 'Try Again'(작업이 사라졌거나 확인을 멈춘 뒤): 먼저 지금 상태를 다시 확인한다. 작업이 아직 돌고 있으면(마지막 진행 신호가 5분 안)
   // 재생성을 요청하지 않고 확인만 이어 가고, 'pending'인데 작업이 사라졌을 때(서버 재시작 등)만 다시 만들기를 요청한다.
   const retryDebrief = () =>
     cardAct(async () => {
@@ -422,7 +394,7 @@ export default function SessionReview() {
   };
 
   const removeSession = async () => {
-    if (!confirm("이 연습 기록을 삭제할까요? 전사문과 원본 녹음도 함께 지워져요.")) return;
+    if (!confirm("Delete this practice? Its transcripts and recordings are deleted too.")) return;
     setErr(null);
     try {
       await api.deleteSession(id);
@@ -434,63 +406,121 @@ export default function SessionReview() {
     }
   };
 
-  if (err && !s) return <p className="err">{err}</p>;
-  if (!s) return <p className="muted">불러오는 중…</p>;
+  if (err && !s) return <p className="err" role="alert">Couldn't load this practice. {err}</p>;
+  if (!s) return <p className="muted">Loading…</p>;
   // 원본 녹음은 전사가 끝나면 지워질 수 있으니 녹음 여부는 recorded_at으로 본다
   const remaining = s.answers.filter((a) => !a.recorded_at && !a.transcript?.trim()).length;
   const firstDirtyOrder = Math.min(...s.answers.filter(a=>dirtyTranscripts[a.id]).map(a=>a.order_no));
   const hasDirtyTranscript = Number.isFinite(firstDirtyOrder);
-  const reviewSession = hasDirtyTranscript ? {...s, debrief:null, debrief_status:'none' as const, redrill:[], answers:s.answers.map(a=>a.order_no>=firstDirtyOrder ? {...a, coaching_report:null, ai_feedback:null, recording_transcript_current:false} : a)} : s;
-  const weak = reviewSession.redrill.length;
-  // '보완 항목 N개'(PR #2 문구)는 고른 답변마다 코칭의 보완이 있을 때만 맞다. 자기평가만으로 고른 답변이 있으면 답변 수로 말한다
-  const allNeedWork = s.redrill.every((w) => w.reasons.some((r) => r.endsWith("보완")));
+  const view = hasDirtyTranscript ? {...s, debrief:null, debrief_status:'none' as const, redrill:[], answers:s.answers.map(a=>a.order_no>=firstDirtyOrder ? {...a, coaching_report:null, ai_feedback:null, recording_transcript_current:false} : a)} : s;
+  const paused = hasDirtyTranscript || refreshPending;
+  const ins = sessionInsights(view);
+  const coaching = integratedCoaching(view, localDeliveryFacts(view));
+  const metrics = new Map(ins.answers.map((m) => [m.id, m]));
+  const answered = ins.answers.filter((m) => m.recorded || m.hasTranscript).length;
+  const needsWork = ins.answers.filter((m) => Object.values(m.statuses).includes("보완")).length;
+  const ratings = ins.answers.flatMap((m) => (m.rating != null ? [m.rating] : []));
+  const avgRating = ratings.length ? ratings.reduce((t, r) => t + r, 0) / ratings.length : null;
+  const weak = view.redrill.length;
+  const next = coaching.actions[0];
+  const d = view.debrief_status === "done" ? view.debrief : null;
+  const lesson = d?.lesson;
+  const status = view.debrief_status;
+  // 'pending'인데 서버가 도는 작업이 없다고 하면 작업이 사라진 것(서버 재시작 등)이다
+  const lost = status === "pending" && !view.debrief_running;
+  const debriefBusy = cardBusy || paused;
 
   return (
-    <>
-      <div className="row">
-        <h1 className="grow" style={{ margin: 0 }}>{s.title}</h1>
-        {!s.finished_at && <Link to={`/practice/sessions/${s.id}/run`}>{remaining > 0 ? `남은 ${remaining}개 이어서 연습` : "면접 이어서 마치기"}</Link>}
-        <button className="danger" onClick={removeSession}>삭제</button>
+    <div className="review" onClickCapture={openLinkedAnswer}>
+      <div className="review-head">
+        <h1>Practice · {when(s.created_at)}</h1>
+        {!s.finished_at && <Link className="btn" to={`/practice/sessions/${s.id}/run`}>{remaining > 0 ? `Continue Practice (${remaining} Left)` : "Finish Practice"}</Link>}
+        <button className="danger" onClick={removeSession}>Delete</button>
       </div>
-      <p className="muted small">{new Date(s.created_at).toLocaleString("ko-KR")} · {s.mode === "mock" ? `모의시험 (준비 ${s.prep_sec}초 / 답변 ${s.answer_sec}초)` : "자유 연습"}</p>
-      {err && <p className="err">{err}</p>}
-      {refreshPending && <p className="small muted" role="status">변경한 회고 자료를 확인하고 있어요. 확인될 때까지 세션 해석과 재연습 추천을 잠시 멈춰요.</p>}
-      {refreshError && <div data-testid="review-refresh-error" className="err"><p>회고 자료를 다시 확인하지 못했어요. {refreshError}</p><button disabled={refreshBusy} onClick={reload}>회고 다시 불러오기</button></div>}
-      {hasDirtyTranscript && <p className="small muted">저장하지 않은 전사문이 있어 해당 답변과 이후 대화 코칭·세션 요약·재연습 추천을 잠시 제외해요. 수정한 내용을 저장하거나 되돌려 주세요.</p>}
-      <ReviewInsights s={reviewSession} />
-      <DebriefCard s={reviewSession} pauseContent={hasDirtyTranscript || refreshPending} gaveUp={gaveUp} busy={cardBusy || hasDirtyTranscript || refreshPending} err={cardErr} onRetry={retryDebrief} />
-      <CompetencyPanel s={reviewSession}/>
-      <VoiceReportCard s={s} dirtyAnswerIds={new Set(Object.keys(dirtyTranscripts).filter(id=>dirtyTranscripts[id]))} onCleared={()=>refreshDelivery(v=>v+1)}/>
-      <VideoReportCard sessionId={s.id} answers={s.answers} onCleared={()=>refreshDelivery(v=>v+1)} />
-      <InterviewContext context={s.context_snapshot} />
-      <section className="card review-summary">
-        <h2>다음 연습으로 연결하기</h2>
-        <p className="small muted">답변을 점검하면 보완할 부분을 확인할 수 있어요. 이전 기록은 보관하고 같은 기준 자료로 다시 연습해요.</p>
-        {weak === 0 ? (
-          <p className="muted small">코칭에 ‘보완’이 있거나 자기평가가 1~2점인 답변이 여기에 모여요.</p>
-        ) : (
-          <ul className="plain weak-list">
-            {reviewSession.redrill.map((w) => (
-              <li key={w.answer_id}>
-                <div className="small"><a href={`#answer-${w.answer_id}`}>Q{w.order_no}.</a> {w.question_text}</div>
-                <div className="row small" style={{ gap: 6, marginTop: 4 }}>
-                  {w.reasons.map((r) => <span key={r} className={`chip ${r.endsWith("보완") ? "needs-work" : ""}`}>{r}</span>)}
-                </div>
-              </li>
-            ))}
-          </ul>
+      {s.mode === "mock" && <p className="small muted review-mode">Mock interview · {s.prep_sec}s to prepare · {s.answer_sec}s per answer</p>}
+      {err && <p className="err" role="alert">{err}</p>}
+      {refreshError && <div data-testid="review-refresh-error" className="err row" role="alert"><span className="grow">Couldn't reload the review. {refreshError}</span><button disabled={refreshBusy} onClick={reload}>Reload Review</button></div>}
+
+      <section className="card review-summary" aria-labelledby={summaryTitle}>
+        <h2 id={summaryTitle}>Summary</h2>
+        <p className="summary-counts" data-testid="summary-counts">
+          {answered === 0 ? "No answers yet." : `${plural(answered, "answer")} · ${needsWork} ${needsWork === 1 ? "needs" : "need"} work${avgRating != null ? ` · Avg. self-rating ${avgRating.toFixed(1)}` : ""}`}
+        </p>
+        {status === "pending" && (lost || gaveUp
+          ? <div className="row small warn-text"><span className="grow">{lost ? "Checking your answers stopped before it finished." : "Checking your answers is taking longer than usual."}</span><button disabled={debriefBusy} onClick={retryDebrief}>Try Again</button></div>
+          : <p className="small muted" role="status">Checking your answers…</p>)}
+        {status === "failed" && <p className="err">Couldn't check every answer. Use Check Answer on the answers without checks.</p>}
+        {status !== "pending" && view.debrief_running && !gaveUp && <p className="small muted" role="status">Checking your answers…</p>}
+        {cardErr && <p className="err" role="alert">{cardErr}</p>}
+        {paused
+          ? <p className="small muted" role="status" data-testid="integrated-content-paused">{hasDirtyTranscript ? "Save or undo your transcript changes to update the summary." : refreshError ? "The summary updates after the review reloads." : "Updating the summary…"}</p>
+          : answered > 0 && next && <p className="summary-next" data-testid="summary-next">Next: <a href={`#answer-${next.answerId}`}>Q{next.order}</a> · <span lang={langOf(next.text)}>{next.text}</span></p>}
+        <div className="row summary-actions">
+          <button className="primary" disabled={busy || !weak} onClick={async () => {
+            setBusy(true); setRedrillErr(null);
+            try { const drill = await api.redrill(s.id); nav(`/practice/sessions/${drill.id}/run`); }
+            catch (e) { setRedrillErr((e as Error).message); }
+            finally { setBusy(false); }
+          }}>Practice Weak Answers Again</button>
+          {!weak && answered > 0 && !paused && <span className="small muted">Nothing to practice again yet.</span>}
+        </div>
+        {redrillErr && <p className="err" role="alert">{redrillErr}</p>}
+        <p className="small muted summary-limit">{LIMIT_LINE}</p>
+        {lesson && (
+          <p className="summary-lesson" data-testid="summary-lesson">
+            Earlier AI review: <span lang={langOf(lesson)}>“{lesson}”</span>
+            {d?.input_status === "legacy_unverified" && <span className="small muted"> (saved by an earlier version, so it may not match your current answers)</span>}
+          </p>
         )}
-        <div className="spacer" />
-        <button className="primary" disabled={busy || !weak} onClick={async () => {
-          setBusy(true); setErr(null);
-          try { const drill = await api.redrill(s.id); nav(`/practice/sessions/${drill.id}/run`); }
-          catch (e) { setErr((e as Error).message); }
-          finally { setBusy(false); }
-        }}>{allNeedWork ? `보완 항목 ${weak}개 다시 연습` : `답변 ${weak}개 다시 연습`}</button>
+        {(answered > 0 || d) && (
+          <details className="fold summary-details">
+            <summary>Details</summary>
+            {weak > 0 && (
+              <div className="weak-answers">
+                <h3>Answers to Practice Again</h3>
+                <ul className="plain weak-list">
+                  {view.redrill.map((w) => (
+                    <li key={w.answer_id}>
+                      <div className="small"><a href={`#answer-${w.answer_id}`}>Q{w.order_no}</a> <span lang="ko">{w.question_text}</span></div>
+                      <div className="row small" style={{ gap: 6, marginTop: 4 }}>
+                        {/* Reasons stay "{criterion} 보완" / "자기평가 N점" on the server; only the screen name is English */}
+                        {w.reasons.map((r) => <span key={r} className={`chip ${needsWorkReason(r) ? "needs-work" : ""}`}>{reasonLabel(r)}</span>)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!paused && answered > 0 && <IntegratedCoaching result={coaching} />}
+            <ReviewInsights s={view} ins={ins} />
+            <CompetencyPanel s={view} />
+            {d && (d.next_action || d.moments.length > 0) && (
+              <div className="earlier-review">
+                <h3>Earlier AI Review</h3>
+                {d.next_action && <p><b>Next:</b> <span lang={langOf(d.next_action)}>{d.next_action}</span></p>}
+                {d.moments.length > 0 && (
+                  <ul className="plain">
+                    {d.moments.map((m, i) => (
+                      <li key={i}>
+                        <a href={`#answer-${m.answer_id}`} className="small">Q{m.order_no}</a>
+                        <blockquote className="quote" lang={langOf(m.quote)}>“{m.quote}”</blockquote>
+                        {m.why && <div className="small" lang={langOf(m.why)}>{m.why}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </details>
+        )}
+        <InterviewContext context={s.context_snapshot} />
       </section>
-      {s.answers.map((a) => (
-        <AnswerCard key={a.id} onTranscriptDirty={onTranscriptDirty} staleForDraft={a.order_no>=firstDirtyOrder} hasEarlierDraft={a.order_no>firstDirtyOrder} sessionId={s.id} onReportsChanged={()=>refreshDelivery(v=>v+1)} a={a} context={s.context_snapshot} rubric={rubric} onChange={onAnswer} onReload={reload} />
-      ))}
-    </>
+
+      <section aria-label="Answers" className="answer-list">
+        {s.answers.map((a) => (
+          <AnswerCard key={a.id} verdict={verdictName(a, metrics.get(a.id))} onTranscriptDirty={onTranscriptDirty} staleForDraft={a.order_no>=firstDirtyOrder} hasEarlierDraft={a.order_no>firstDirtyOrder} sessionId={s.id} onReportsChanged={()=>refreshDelivery(v=>v+1)} a={a} context={s.context_snapshot} rubric={rubric} onChange={onAnswer} onReload={reload} />
+        ))}
+      </section>
+    </div>
   );
 }

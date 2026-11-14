@@ -202,11 +202,11 @@ export function videoDiagnostics(summary: SegmentSummary): {
   const coverage = answer > 0 ? analyzed / answer : 0;
   const unanalysedMs = Math.max(0, answer - analyzed);
   const comments: string[] = [];
-  if (unanalysedMs > 0) comments.push(`답변 중 ${(unanalysedMs / 1000).toFixed(1)}초는 분석하지 못한 구간입니다. 이 시간을 얼굴 이탈로 세지 않습니다.`);
-  if (summary.noneMs > 0) comments.push("얼굴을 찾지 못한 구간이 있습니다. 조명·가림·각도·검출 오류도 원인일 수 있습니다.");
-  if (summary.edgeMs > 0) comments.push("얼굴 일부가 프레임 밖에 있었습니다. 카메라 위치·거리를 확인해 보세요.");
-  if (summary.headMs > 0) comments.push("고개 방향은 이 답변의 중앙 자세에 대한 상대 변화이며 시선·집중도·자신감을 뜻하지 않습니다.");
-  if (!analyzed) comments.push("분석한 영상이 없어 자세를 판단할 수 없습니다.");
+  if (unanalysedMs > 0) comments.push(`${(unanalysedMs / 1000).toFixed(1)}s of the answer wasn't analyzed. It isn't counted as your face being out of view.`);
+  if (summary.noneMs > 0) comments.push("Your face wasn't found at times. This can also be caused by lighting, something in the way, the angle or a detection error.");
+  if (summary.edgeMs > 0) comments.push("Part of your face was out of view. Check the camera position and distance.");
+  if (summary.headMs > 0) comments.push("Head direction is relative to your usual position in this answer. It isn't eye tracking and doesn't measure focus.");
+  if (!analyzed) comments.push("No video was analyzed, so there are no posture numbers.");
   return { quality: !analyzed ? "insufficient" : coverage < 0.8 ? "partial" : "measured", coverage, unanalysedMs, comments };
 }
 export function clearAllVideo() { reports.clear(); revisions.clear(); detectorMetadata.clear();runIds.clear(); }

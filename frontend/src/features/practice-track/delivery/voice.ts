@@ -31,10 +31,10 @@ export type DeliverySummary = {
 export const VOICE_SAMPLE_SEC = 0.1;
 const MAX_REPRESENTED_SEC = 0.2;
 const LIMITATIONS = [
-  "브라우저 음량 변화로 찾은 발화 후보이며 검증된 음성 구간이 아닙니다. 배경 소음·자동 음량 조절의 영향을 받습니다.",
-  "전체 속도와 발화 후보 속도는 전사문 근사 음절 수를 각각 전체 녹음 시간과 에너지 후보 시간으로 나눈 분당 음절 참고값입니다. 영문·숫자는 글자당 한 음절로 셉니다.",
-  "멈춤은 관측된 저에너지 구간(처음·끝 포함)이며 언어적 쉼이나 긴장을 뜻하지 않습니다. 분석 공백은 멈춤으로 세지 않습니다.",
-  "추임새는 전사문 속 독립된 낱말 후보로만 세며 발화 시각·실제 소리·습관을 판정하지 않습니다.",
+  "Speaking time is estimated from volume changes in the browser, not from checked speech detection. Background noise and automatic volume control affect it.",
+  "Pace divides the transcript's approximate syllable count by the whole recording and by the estimated speaking time. Letters and digits count as one syllable each.",
+  "Pauses are quiet stretches, including at the start and end. They don't mean hesitation or nerves. Gaps in the analysis aren't counted as pauses.",
+  "Filler words are counted only as separate words in the transcript. When and how they were said isn't known.",
 ];
 
 /** At 10Hz this budget covers 30min. Stop retaining new samples at the cap; lost coverage remains explicit. */
@@ -54,7 +54,7 @@ export function createVoiceSampler(maxSamples = 18_000) {
 export function withVoiceTranscript(summary: DeliverySummary, transcript: string): DeliverySummary {
   if (summary.transcriptRevisionMatches === false) return {
     ...summary, transcriptUnits: 0, syllables: 0, totalPacePerMin: null, activeCandidatePacePerMin: null, fillers: [],
-    limitations: [...new Set([...summary.limitations, "전사문이 바뀌어 녹음과 연결한 속도·추임새 해석을 표시하지 않습니다. 수치 관찰은 원래 녹음의 값입니다."])],
+    limitations: [...new Set([...summary.limitations, "The transcript changed, so pace and filler words tied to the recording aren't shown. The other numbers are from the original recording."])],
   };
   const tokens = transcript.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const candidates = new Set(["어", "음", "그", "저", "그러니까", "이제", "사실", "약간", "아무튼", "뭐", "um", "uh"]);

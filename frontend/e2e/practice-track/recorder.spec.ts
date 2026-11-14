@@ -102,8 +102,9 @@ test("a star rating cannot be sent again while the first one is saving", async (
     await route.continue();
   });
   await page.goto(`/practice/sessions/${session.id}`);
-  const four = page.getByRole("radio", { name: "4점", exact: true });
-  const two = page.getByRole("radio", { name: "2점", exact: true });
+  await page.locator("details.answer-card > summary").click();
+  const four = page.getByRole("radio", { name: "4 stars", exact: true });
+  const two = page.getByRole("radio", { name: "2 stars", exact: true });
   await four.click();
   try {
     await expect(four).toBeDisabled();
