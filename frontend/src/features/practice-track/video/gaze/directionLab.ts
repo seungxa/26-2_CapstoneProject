@@ -2,13 +2,22 @@
  *  두 조건(눈만 / 고개와 함께)에서 방향마다 3번씩, 마지막에 대본 읽기 구간을 둔다. 판정 못 함도 분모에 넣는다(정답으로 세지 않음).
  *  통과는 회고 화면에 시선 방향을 넣을지 정하는 실험 기준일 뿐 정확도 보장이 아니다. */
 import { DIRECTION, DIRECTION_PASS } from "./constants";
-import { DIRECTIONS, type Direction, type DirectionLabel, type UnknownReason } from "./direction";
+import { DIRECTIONS, smoothLabels, type Direction, type DirectionLabel, type UnknownReason } from "./direction";
 import type { Pose } from "./calibration";
 
 export type TrialCondition = "eyes" | "natural" | "script";
 export type Trial = { id: string; expected: Direction; condition: TrialCondition; x: number; y: number; pose: Pose;
   settleMs: number; collectMs: number; prompt: string };
 export type TrialData = { trial: Trial; labels: DirectionLabel[] };
+
+/** 채점에 쓸 시행 라벨. 평활(다수결)로 짧은 흔들림과 한 번의 눈 깜빡임은 걸러 내지만, 눈 추적 실패·자세 변화 같은
+ *  판정 못 함 표본은 이웃 방향으로 덮지 않는다(쓸 수 없는 표본을 정답으로 세지 않게) */
+export function trialLabels(raw: { t: number; label: DirectionLabel }[]): DirectionLabel[] {
+  return smoothLabels(raw).map((l, i) => {
+    const r = raw[i].label;
+    return r.label === "unknown" && r.reason !== "blink" ? r : l;
+  });
+}
 
 /** 반복 r(0·1·2)마다 방향별 시행 위치(뷰포트 비율) */
 const POSITIONS: Record<Direction, [number, number][]> = {
@@ -61,7 +70,8 @@ export type DirectionRunReport = {
   centerAsDown: number | null;
   unknownRate: number | null;
   unknownReasons: Partial<Record<UnknownReason, number>>;
-  script: { down: number | null; unknown: number | null };
+  /** 대본 시행(참고용): 아래 비율, 판정 못 함 비율과 사유별 개수. 통과 판정 지표와 섞지 않는다 */
+  script: { down: number | null; unknown: number | null; reasons: Partial<Record<UnknownReason, number>> };
   samples: number;
   verdict: "pass" | "fail";
   failed: string[];
@@ -83,12 +93,17 @@ export function evaluateDirectionRun(data: TrialData[]): DirectionRunReport {
     return [exp, row];
   })) as DirectionRunReport["confusion"];
   const all = labelsOf(() => true);
-  const unknownReasons: DirectionRunReport["unknownReasons"] = {};
-  for (const l of all) if (l.label === "unknown") unknownReasons[l.reason] = (unknownReasons[l.reason] ?? 0) + 1;
+  const reasonsOf = (labels: DirectionLabel[]) => {
+    const out: Partial<Record<UnknownReason, number>> = {};
+    for (const l of labels) if (l.label === "unknown") out[l.reason] = (out[l.reason] ?? 0) + 1;
+    return out;
+  };
+  const unknownReasons = reasonsOf(all);
   const centerAsDown = share(labelsOf((t) => t.expected === "center"), (l) => l.label === "down");
   const unknownRate = share(all, (l) => l.label === "unknown");
   const scriptLabels = data.filter((d) => d.trial.condition === "script").flatMap((d) => d.labels);
-  const script = { down: share(scriptLabels, (l) => l.label === "down"), unknown: share(scriptLabels, (l) => l.label === "unknown") };
+  const script = { down: share(scriptLabels, (l) => l.label === "down"), unknown: share(scriptLabels, (l) => l.label === "unknown"),
+    reasons: reasonsOf(scriptLabels) };
 
   const P = DIRECTION_PASS;
   const failed: string[] = [];
@@ -115,6 +130,7 @@ export function directionAggregate(r: DirectionRunReport): Record<string, number
   for (const [reason, n] of Object.entries(r.unknownReasons)) out[`unknown.${reason}`] = n ?? 0;
   out["script.down"] = num(r.script.down);
   out["script.unknown"] = num(r.script.unknown);
+  for (const [reason, n] of Object.entries(r.script.reasons)) out[`script.unknown.${reason}`] = n ?? 0;
   out.samples = r.samples;
   out.verdict = r.verdict;
   out.failed = r.failed.join(",");

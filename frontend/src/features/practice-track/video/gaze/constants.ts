@@ -51,6 +51,8 @@ export const FEASIBILITY = {
  *  alphaX·alphaY: 고개 특징(hx·hy)을 홍채 특징(ex·ey) 단위로 바꾸는 계수(합성 얼굴 기하의 비율에서 정한 초기값).
  *  enter: 가장자리 점까지의 거리에 대한 비율이 이 값 이상이면 그 방향. minSeparation: 기준 잡기에서 방향 거리 ≥ 점 안 흩어짐의 이 배수 */
 export const DIRECTION = { alphaX: 0.8, alphaY: 1.7, enter: 0.5, minSeparation: 3, smoothMs: 750,
-  settleMs: 700, collectMs: 1300, calibrateHz: 10, trialHz: 4 } as const;
+  settleMs: 700, collectMs: 1300, calibrateHz: 10, trialHz: 4,
+  /** 방향 시행 하나에 이보다 적은 프레임이 오면(탭이 가려짐·카메라 끊김) 그 실행은 무효 */
+  minTrialFrames: 3 } as const;
 /** 방향 실험 한 번의 통과 기준(잠정)과 3회 판정 규칙 */
 export const DIRECTION_PASS = { center: 0.85, down: 0.8, side: 0.7, centerAsDownMax: 0.1, unknownMax: 0.15, runsTotal: 3, runsNeeded: 2 } as const;

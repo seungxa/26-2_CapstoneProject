@@ -6,7 +6,7 @@ import {
 import { gazeFeatures, type GazeFeatures } from "../../../src/features/practice-track/video/gaze/features";
 import { POSE_GEOMETRY, VIEW, screenToGaze, syntheticFace } from "../../../src/features/practice-track/video/gaze/synthetic";
 import {
-  directionAggregate, directionTrials, evaluateDirectionRun, runsVerdict, type Trial, type TrialData,
+  directionAggregate, directionTrials, evaluateDirectionRun, runsVerdict, trialLabels, type Trial, type TrialData,
 } from "../../../src/features/practice-track/video/gaze/directionLab";
 
 // 시선 방향(C1) 계산 테스트. 합성 얼굴의 숨긴 기하로 화면 점을 보는 특징을 만든다(실제 웹캠 정확도는 실험실에서 사람이 잰다).
@@ -145,6 +145,29 @@ test.describe("direction lab", () => {
     }
     expect(out["verdict"]).toBe("pass");
     expect(out["acc.down"]).toBe(1);
+  });
+
+  test("tracking failures survive smoothing: scattered eyes_unreliable samples fail the run on unknown", () => {
+    // 시행마다 가운데 표본 하나가 눈 추적 실패. 평활(다수결)만 하면 이웃 방향으로 덮여 정답처럼 세진다
+    const data = directionTrials(1).map((trial) => ({ trial, labels: trialLabels(Array.from({ length: 5 }, (_, i) => ({ t: i * 250,
+      label: (i === 2 ? { label: "unknown", reason: "eyes_unreliable" } : { label: trial.expected }) as DirectionLabel }))) }));
+    const r = evaluateDirectionRun(data);
+    expect(r.unknownRate).toBeCloseTo(0.2, 2);
+    expect(r.failed).toContain("unknown");
+  });
+
+  test("trialLabels still smooths away a one-sample blink", () => {
+    const seq = [0, 1, 2, 3, 4].map((i) => ({ t: i * 250,
+      label: (i === 2 ? { label: "unknown", reason: "blink" } : { label: "down" }) as DirectionLabel }));
+    expect(trialLabels(seq).map((l) => l.label)).toEqual(["down", "down", "down", "down", "down"]);
+  });
+
+  test("script trial unknown reasons are reported separately", () => {
+    const r = evaluateDirectionRun(labelsFor(directionTrials(1),
+      (t) => (t.condition === "script" ? { label: "unknown", reason: "pose_changed" } : { label: t.expected })));
+    expect(r.script.reasons.pose_changed).toBe(6);
+    expect(directionAggregate(r)["script.unknown.pose_changed"]).toBe(6);
+    expect(r.unknownReasons.pose_changed).toBeUndefined(); // 대본 시행은 통과 판정 지표와 섞지 않는다
   });
 
   test("runsVerdict needs two passes out of three", () => {

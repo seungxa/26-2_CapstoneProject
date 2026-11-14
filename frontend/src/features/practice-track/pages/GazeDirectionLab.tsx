@@ -4,9 +4,9 @@ import DirectionTargetOverlay from "../components/DirectionTargetOverlay";
 import { useDirectionCalibration, viewportGeometry } from "../components/useDirectionCalibration";
 import { useFaceAnalysis } from "../components/useFaceAnalysis";
 import { DIRECTION, DIRECTION_PASS } from "../video/gaze/constants";
-import { DIRECTIONS, classifyDirection, featuresFromFrames, smoothLabels, type Direction, type UnknownReason } from "../video/gaze/direction";
+import { DIRECTIONS, classifyDirection, featuresFromFrames, type Direction, type UnknownReason } from "../video/gaze/direction";
 import {
-  directionAggregate, directionTrials, evaluateDirectionRun, runsVerdict,
+  directionAggregate, directionTrials, evaluateDirectionRun, runsVerdict, trialLabels,
   type DirectionRunReport, type Trial, type TrialData,
 } from "../video/gaze/directionLab";
 import { createCalibrationGuard, type CalibrationInvalid } from "../video/gaze/quality";
@@ -22,7 +22,11 @@ const E2E = import.meta.env.VITE_E2E_FAKE_FACE === "true";
 const timeScale = () => (E2E ? Number(localStorage.getItem("e2e-gaze-scale")) || 1 : 1);
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const LABEL: Record<Direction, string> = { center: "정면", up: "위", down: "아래", left: "왼쪽", right: "오른쪽" };
-const INVALID: Record<CalibrationInvalid, string> = {
+/** 실행 전체를 무효로 만드는 사유: 보정 기준(뷰포트·해상도)이 바뀜, 탭이 가려짐(검출이 멈춤), 시행 프레임이 끊김 */
+type RunInvalid = CalibrationInvalid | "hidden" | "frames_missing";
+const INVALID: Record<RunInvalid, string> = {
+  hidden: "다른 탭이나 창으로 옮겨 가서 이번 시험은 무효예요.",
+  frames_missing: "카메라 화면이 끊겨 이번 시험은 무효예요.",
   viewport_changed: "창 크기·위치·배율이 바뀌어 이번 시험은 무효예요.",
   resolution_changed: "카메라 해상도가 바뀌어 이번 시험은 무효예요.",
   invalid_resolution: "유효한 카메라 해상도를 확인할 수 없어 이번 시험은 무효예요.",
@@ -82,14 +86,23 @@ export default function GazeDirectionLab() {
     const k = timeScale();
     // 기준 잡기부터 마지막 시행까지 한 기준: 뷰포트·카메라 해상도가 바뀌면 그 실행은 무효
     const guard = createCalibrationGuard(viewportGeometry());
-    const seen = { invalid: null as CalibrationInvalid | null };
+    const seen = { invalid: null as RunInvalid | null };
     const unwatch = subscribeFrames((f) => { seen.invalid ??= guard.check(viewportGeometry(), { width: f.width, height: f.height }); });
+    // 탭이 가려지면 검출이 멈춰 시행이 비거나 일부만 채점된다: 그 실행은 무효
+    const onVisibility = () => { if (document.hidden) seen.invalid ??= "hidden"; };
+    document.addEventListener("visibilitychange", onVisibility);
+    const invalidate = (reason: RunInvalid) => {
+      setMessage(INVALID[reason]);
+      setTrial(null);
+      setPhase("invalid");
+    };
     setCopied(null);
     setMessage("");
     setPhase("calibrating");
     try {
       const cal = await startCalibration();
       if (!live()) return;
+      if (seen.invalid) { invalidate(seen.invalid); return; }
       if (!cal) { setPhase("calFailed"); return; }
       const trials = directionTrials(++attempts.current);
       const data: TrialData[] = [];
@@ -106,15 +119,11 @@ export default function GazeDirectionLab() {
         collecting.current?.();
         collecting.current = null;
         if (!live()) return;
-        const invalid = seen.invalid ?? guard.check(viewportGeometry());
-        if (invalid) {
-          setMessage(INVALID[invalid]);
-          setTrial(null);
-          setPhase("invalid");
-          return;
-        }
+        const invalid = seen.invalid ?? guard.check(viewportGeometry())
+          ?? (frames.length < DIRECTION.minTrialFrames ? "frames_missing" : null);
+        if (invalid) { invalidate(invalid); return; }
         const labels = featuresFromFrames(frames).map((f, j) => ({ t: frames[j].t, label: classifyDirection(f, cal) }));
-        data.push({ trial: t, labels: smoothLabels(labels) });
+        data.push({ trial: t, labels: trialLabels(labels) });
       }
       const report = evaluateDirectionRun(data);
       const view = { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight };
@@ -124,6 +133,7 @@ export default function GazeDirectionLab() {
       setPhase("done");
     } finally {
       unwatch();
+      document.removeEventListener("visibilitychange", onVisibility);
       if (live()) setTargetHz(4);
     }
   }, [setTargetHz, startCalibration, subscribeFrames]);
@@ -170,7 +180,8 @@ export default function GazeDirectionLab() {
       </div>}
     </section>
     {busy && <button className="gaze-lab-stop" onClick={stop}>시험 중단</button>}
-    {phase === "done" && last && <Results report={last} runs={runs} onCopy={() => void copy()} onClear={clear} copied={copied} />}
+    {/* 끝난 실행의 결과는 다음 실행을 멈추거나 무효가 돼도 계속 보인다(복사할 수 있게) */}
+    {!busy && last && <Results report={last} runs={runs} onCopy={() => void copy()} onClear={clear} copied={copied} />}
     {phase === "calibrating" && calState.phase === "running" && <DirectionTargetOverlay x={calState.target.x * view.w}
       y={calState.target.y * view.h} prompt="점을 보세요(고개는 편하게)" pose="forward" step={calState.step} total={calState.total} />}
     {phase === "running" && trial && <DirectionTargetOverlay x={trial.t.x * view.w} y={trial.t.y * view.h} prompt={trial.t.prompt}
@@ -182,6 +193,7 @@ function Results({ report: r, runs, onCopy, onClear, copied }: { report: Directi
   onCopy: () => void; onClear: () => void; copied: string | null }) {
   const verdicts = runs.map((x) => x.report.verdict);
   const reasons = Object.entries(r.unknownReasons) as [UnknownReason, number][];
+  const scriptReasons = Object.entries(r.script.reasons) as [UnknownReason, number][];
   return <section className="card">
     <h2>시험 결과</h2>
     <p className="small">이 판정은 회고 화면에 시선 방향을 넣을지 정하는 실험 기준이에요. 통과해도 정확도를 보장하지 않아요. 한 사람·한 기기·한 번의 결과예요.</p>
@@ -193,6 +205,7 @@ function Results({ report: r, runs, onCopy, onClear, copied }: { report: Directi
     <p className="small">정면을 아래로 오판 {pct(r.centerAsDown)} (기준 {pct(DIRECTION_PASS.centerAsDownMax)} 이하) ·
       판정 못 함 {pct(r.unknownRate)} (기준 {pct(DIRECTION_PASS.unknownMax)} 이하) · 대본 읽기 구간의 '아래' {pct(r.script.down)} (참고) · 표본 {r.samples}</p>
     {reasons.length > 0 && <p className="small muted">판정 못 함 사유: {reasons.map(([k, n]) => `${REASON[k] ?? k} ${n}`).join(" · ")}</p>}
+    {scriptReasons.length > 0 && <p className="small muted" data-testid="direction-script-reasons">대본 읽기 구간의 판정 못 함 사유: {scriptReasons.map(([k, n]) => `${REASON[k] ?? k} ${n}`).join(" · ")}</p>}
     <h3>혼동표(기대한 방향 → 판정)</h3>
     <table data-testid="direction-confusion"><thead><tr><th>기대</th>{DIRECTIONS.map((d) => <th key={d}>{LABEL[d]}</th>)}<th>판정 못 함</th></tr></thead>
       <tbody>{DIRECTIONS.map((exp) => <tr key={exp}><td>{LABEL[exp]}</td>{DIRECTIONS.map((d) => <td key={d}>{r.confusion[exp][d]}</td>)}
