@@ -163,6 +163,29 @@ def test_pending_left_by_an_old_summary_job_is_settled(client):
     assert got["answers"][0]["coaching_report"]["method"] == "basic"
 
 
+@pytest.mark.parametrize("path", ["finish", "debrief"])
+def test_pending_with_a_stored_summary_keeps_rendering_it(client, path):
+    """예전 흐름은 다시 끝내거나 재생성할 때 저장된 요약을 둔 채 'pending'으로 바꿨다. 그 작업이 사라졌으면(이번 배포 등)
+    행에는 'pending'과 유효한 요약이 함께 남는다. 정리할 때 요약을 감추지 않고 'done'으로 되돌린다."""
+    h = {"X-User-Id": f"user-debrief-legacy-pending-summary-{path}"}
+    s = _session(client, h, 1)
+    aid = s["answers"][0]["id"]
+    client.patch(f"/practice/answers/{aid}", json={"transcript": T1}, headers=h)
+    client.post(f"/practice/sessions/{s['id']}/finish", headers=h)  # 기본 점검까지 끝낸다
+    with SessionLocal() as db:
+        x = db.get(PracticeSession, s["id"])
+        x.debrief = {"lesson": "예전 요약의 교훈", "next_action": "예전 행동", "moments": [],
+                     "generated_at": "2026-11-01T00:00:00+00:00", "model": "legacy-model",
+                     "input_sha256": debrief.debrief_fingerprint(x)}
+        x.debrief_status = "pending"
+        db.commit()
+    r = client.post(f"/practice/sessions/{s['id']}/{path}", headers=h).json()
+    assert r["debrief_status"] == "done" and r["debrief"]["lesson"] == "예전 요약의 교훈"
+    got = client.get(f"/practice/sessions/{s['id']}", headers=h).json()
+    assert got["debrief_status"] == "done" and got["debrief"]["lesson"] == "예전 요약의 교훈"
+    assert got["debrief_running"] is False
+
+
 def _edit_transcript(answer_id: str, text: str) -> None:
     """다른 요청(PATCH)이 전사문을 고친 것처럼 별도 DB 세션에서 바꾼다(코칭도 PATCH처럼 무효화)."""
     with SessionLocal() as db:

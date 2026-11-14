@@ -3,7 +3,7 @@
 작업은 BackgroundTasks로 돌고 자체 DB 세션을 연다. 하는 일은 두 가지다: 코칭 보고서가 없는 답변을 /coach와 같은
 경로(규칙 기반 기본 점검)로 점검하고, 다시 연습할 답변은 규칙으로 고른다(응답마다 다시 계산). 세션 요약은 만들지 않는다.
 세션 행에 저장된 예전 요약(debrief)과 그 상태(debrief_status)는 읽기만 한다. 예외로, 예전 요약 작업이 남긴 'pending'은
-끝낼 작업이 없으니 다음 종료·재생성 요청에서 'none'으로 정리한다.
+끝낼 작업이 없으니 다음 종료·재생성 요청에서 정리한다: 저장된 요약이 있으면 'done'(요약이 다시 보이게), 없으면 'none'.
 점검하는 동안 사용자가 전사문을 고칠 수 있다. 고친 답변은 /coach처럼 409로 버리고 다음 바퀴에서 새 전사문으로 다시 점검한다.
 
 작업은 세션 행에 표시를 남긴다: 시작 시각(debrief_started_at, 작업마다 달라 그 작업의 표시), 살아 있다는 신호
@@ -96,7 +96,8 @@ def _lock(db: Session, session_id: str) -> None:
 def prepare_debrief(db: Session, s: PracticeSession) -> bool:
     """종료·재생성 요청에서 작업을 붙일지 동기로 정한다(커밋은 호출한 쪽에서). 점검할 답변이 있어 백그라운드 작업을 붙여야 하면 True.
 
-    저장된 요약과 상태는 바꾸지 않는다. 예전 요약 작업이 남긴 'pending'만 'none'으로 정리한다(그 작업은 다시 오지 않는다).
+    저장된 요약과 상태는 바꾸지 않는다. 예전 요약 작업이 남긴 'pending'만 정리한다(그 작업은 다시 오지 않는다): 예전 흐름은
+    요약을 둔 채 'pending'으로 바꿨으므로 요약이 있으면 'done', 없으면 'none'. 지문이 맞지 않는 요약은 읽을 때 감춘다.
     이미 도는 작업이 있으면 작업을 하나 더 붙이지 않고 요청 시각만 남긴다: 그 작업이 끝나기 전에 보고 한 바퀴 더 돈다.
     """
     _lock(db, s.id)
@@ -106,7 +107,7 @@ def prepare_debrief(db: Session, s: PracticeSession) -> bool:
         s.debrief_requested_at = now
         return False
     if s.debrief_status == "pending":
-        s.debrief_status = "none"
+        s.debrief_status = "done" if s.debrief else "none"
     start = any(_needs_coaching(a) for a in s.answers)
     if start:
         s.debrief_started_at = s.debrief_heartbeat_at = now
