@@ -5,7 +5,6 @@ from copy import deepcopy
 from typing import Literal
 from datetime import datetime, timezone
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -59,7 +58,7 @@ from ..services import answer_coaching
 
 router = APIRouter(prefix="/practice", tags=["practice"])
 
-MAX_AUDIO_BYTES = 25 * 1024 * 1024  # OpenAI 전사 API의 파일 크기 상한
+MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 녹음 파일 크기 상한(예전 OpenAI 전사 API 상한을 그대로 둔다)
 AUDIO_MEDIA_TYPES = {"webm": "audio/webm", "m4a": "audio/mp4", "mp4": "audio/mp4",
                      "mp3": "audio/mpeg", "mpeg": "audio/mpeg", "mpga": "audio/mpeg",
                      "wav": "audio/wav", "ogg": "audio/ogg", "flac": "audio/flac"}
@@ -146,7 +145,7 @@ ANSWER_NOT_FOUND = "답변을 찾을 수 없습니다"
 
 
 def _require_consent(db: Session, user_id: str) -> UserSettings:
-    """녹음을 저장하거나 OpenAI로 보내기 전에 녹음 동의를 확인한다(업로드·전사 다시 시도 공통). 글 답변에는 필요 없다."""
+    """녹음을 저장하거나 전사하기 전에 녹음 동의를 확인한다(업로드·전사 다시 시도 공통). 글 답변에는 필요 없다."""
     prefs = _prefs(db, user_id)
     if not prefs or not prefs.consented_at:
         raise HTTPException(403, NEED_CONSENT)
@@ -335,9 +334,8 @@ def generate(body: GenerateIn, user_id: str = Depends(current_user_id), db: Sess
         raise HTTPException(422, "회사, 직무, 자소서 중 하나 이상이 필요합니다")
     if not settings.practice_insights_enabled and (body.question_type or body.competency_keys):
         raise HTTPException(409,"질문 분류 기능이 활성화되지 않았습니다")
-    preferences={"question_type":body.question_type,"competency_keys":body.competency_keys}
-    args=(company or "",position or "",essay or "",body.count)
-    generated = llm.generate_questions(*args,classification_preferences=preferences) if body.question_type or body.competency_keys else llm.generate_questions(*args)
+    # 맞춤 질문은 템플릿으로만 만든다(외부 서비스 없음). 분류 선호는 받지만 템플릿 선택에는 쓰지 않는다
+    generated = llm.template_questions(company or "", position or "", essay or "", body.count)
     # 이미 가진 질문과 문구가 같으면 다시 저장하지 않는다
     existing = set(db.scalars(select(Question.text).where(Question.user_id == user_id)))
     generated = [g for g in generated if g["text"] not in existing]
@@ -352,10 +350,7 @@ def generate(body: GenerateIn, user_id: str = Depends(current_user_id), db: Sess
             continue
         try:
             classification=ClassificationIn.model_validate(generated_question)
-            source=generated_question.get("tagging_source")
-            if source not in ("ai","rule"):
-                source="ai" if llm.available() else "rule"
-            taxonomy.assign(row,classification.question_type,classification.competency_keys,source)
+            taxonomy.assign(row,classification.question_type,classification.competency_keys,"rule")
         except (ValueError,TypeError):
             pass  # invalid optional metadata never rejects valid core question text
     db.add_all(rows)
@@ -469,9 +464,9 @@ def finish_session(
     user_id: str = Depends(current_user_id),
     db: Session = Depends(get_db),
 ):
-    """세션을 끝내고 자동 디브리프(답변 점검 + 요약)를 시작한다.
+    """세션을 끝내고 자동 디브리프 작업(보고서가 없는 답변의 기본 점검)을 시작한다.
 
-    이미 도는 작업이 있으면 하나 더 붙이지 않고, 그 작업이 결과를 쓰기 전에 한 바퀴 더 돌아 마지막 답변까지 담게 한다.
+    이미 도는 작업이 있으면 하나 더 붙이지 않고, 그 작업이 끝나기 전에 한 바퀴 더 돌아 마지막 답변까지 점검하게 한다.
     """
     s = _own_session(db, user_id, session_id)
     s.finished_at = s.finished_at or _now()
@@ -489,9 +484,9 @@ def regenerate_debrief(
     user_id: str = Depends(current_user_id),
     db: Session = Depends(get_db),
 ):
-    """디브리프를 (다시) 만든다. 키가 없으면 'unavailable', 전사문이 없으면 'none'을 바로 돌려준다.
+    """디브리프 작업을 다시 붙인다: 보고서가 없는 답변을 기본 점검한다. 세션 요약은 만들지 않는다.
 
-    이미 도는 작업이 있으면 하나 더 붙이지 않고, 그 작업이 결과를 쓰기 전에 한 바퀴 더 돌게 한다.
+    이미 도는 작업이 있으면 하나 더 붙이지 않고, 그 작업이 끝나기 전에 한 바퀴 더 돌게 한다.
     """
     s = _own_session(db, user_id, session_id)
     start = prepare_debrief(db, s)
@@ -704,7 +699,7 @@ def retry_transcribe(answer_id: str, user_id: str = Depends(current_user_id), db
     data = _load_audio(path)
     if data is None:
         raise HTTPException(404, "녹음이 없습니다")
-    _require_consent(db, user_id)  # 녹음을 다시 전사하므로(제공자가 openai면 OpenAI로 보낸다) 업로드와 같은 동의가 필요하다
+    _require_consent(db, user_id)  # 녹음을 다시 전사하므로 업로드와 같은 동의가 필요하다
     recorded_at = a.recorded_at
     transcript = _stt(data, path.rsplit("/", 1)[-1], ctype)
     # 전사하는 동안 답변이 지워졌거나, 동의를 철회했거나, 녹음이 바뀌었을 수 있다: 잠그고 다시 확인한 뒤에 반영한다
@@ -861,18 +856,3 @@ def redrill(session_id: str, user_id: str = Depends(current_user_id), db: Sessio
     db.add(s)
     db.commit()
     return _session_out(_own_session(db, user_id, s.id))
-
-
-@router.post("/answers/{answer_id}/feedback", response_model=AnswerOut)
-def ai_feedback(answer_id: str, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
-    a = _own_answer(db, user_id, answer_id)
-    if not a.transcript:
-        raise HTTPException(422, "전사문이 있어야 피드백을 받을 수 있습니다")
-    if not llm.available():
-        raise HTTPException(503, "OPENAI_API_KEY가 설정되지 않아 AI 피드백을 쓸 수 없습니다")
-    try:
-        a.ai_feedback = llm.feedback(a.question.text, a.transcript, a.duration_sec)
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"AI 피드백 요청 실패: {e}") from e
-    db.commit()
-    return a

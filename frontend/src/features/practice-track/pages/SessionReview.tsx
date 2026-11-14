@@ -88,7 +88,7 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
       onChange(next);
       if (syncText) setTranscript(next.transcript ?? "");
     } catch (e) {
-      // 녹음을 OpenAI로 다시 보내려면 녹음 동의가 필요하다(다른 곳에서 철회한 경우)
+      // 녹음을 다시 전사하려면 녹음 동의가 필요하다(다른 곳에서 철회한 경우)
       if (e instanceof ApiError && e.status === 403)
         setNeedConsent(await api.settings().catch(() => ({ consented_at: null, keep_audio: false, retention_days: 30 })));
       else setErr((e as Error).message);
@@ -205,25 +205,19 @@ function AnswerCard({ a, context, rubric, onChange, onReload, sessionId, onRepor
   );
 }
 
-/** 세션을 마치면 자동으로 만드는 디브리프(답변 코칭 위에서). 키가 없으면 기본 점검만 돈다. */
-function DebriefCard({ s, ai, gaveUp, busy, err, onDebrief, onRetry, pauseContent=false }: {
+/** 세션을 마치면 자동으로 도는 디브리프 작업(답변 기본 점검). 새 세션 요약은 만들지 않고, 예전 AI 디브리프는 읽기 전용으로 보인다. */
+function DebriefCard({ s, gaveUp, busy, err, onRetry, pauseContent=false }: {
   s: PracticeSession;
   pauseContent?: boolean;
-  /** 지금 서버에 OpenAI 키가 있는가(/health). 아직 모르면 null이고, 그때는 저장된 상태만 보고 판단한다 */
-  ai: boolean | null;
   gaveUp: boolean;
   busy: boolean;
   err: string | null;
-  onDebrief: () => void;
   /** 작업이 사라졌거나 오래 걸려 확인을 멈춘 뒤의 '다시 시도' */
   onRetry: () => void;
 }) {
   const d = s.debrief;
   const status = s.debrief_status;
-  const hasTranscript = s.answers.some((a) => a.transcript?.trim());
   const hasCoaching = s.answers.some((a) => a.coaching_report);
-  // 저장된 'unavailable'은 마칠 때 키가 없었다는 뜻일 뿐이다. 지금 키가 있으면 만들 수 있고, 지금 키가 없으면 어떤 상태든 만들 수 없다
-  const noKey = ai === false || (ai === null && status === "unavailable");
   // 'pending'인데 서버가 도는 작업이 없다고 하면 작업이 사라진 것(서버 재시작 등)이다: 기다리게 하지 않고 바로 다시 시도를 보인다
   const lost = status === "pending" && !s.debrief_running;
   const noKeyText = (
@@ -280,43 +274,22 @@ function DebriefCard({ s, ai, gaveUp, busy, err, onDebrief, onRetry, pauseConten
             </>
           )}
           <div className="row">
-            {noKey ? (
-              <span className="small muted grow">AI 요약은 참고용이에요. 지금은 OpenAI 키가 없어 다시 만들 수 없어요.</span>
-            ) : (
-              <>
-                <span className="small muted grow">AI 요약은 참고용이에요. 답변을 고쳤다면 다시 만들어 보세요.</span>
-                <button className="small" disabled={busy} onClick={onDebrief}>다시 만들기</button>
-              </>
-            )}
+            <span className="small muted grow">AI 요약은 참고용이에요. 지금은 OpenAI 키가 없어 다시 만들 수 없어요.</span>
           </div>
         </details>
       )}
-      {status === "failed" &&
-        (noKey ? (
-          <>
-            <p className="err" style={{ marginTop: 0 }}>디브리프를 만들지 못했어요.{hasCoaching && " 답변 코칭 결과는 아래 답변에 남아 있어요."}</p>
-            {noKeyText}
-          </>
-        ) : (
-          <div className="row">
-            <span className="err grow">디브리프를 만들지 못했어요.{hasCoaching && " 답변 코칭 결과는 아래 답변에 남아 있어요."}</span>
-            <button disabled={busy} onClick={onDebrief}>다시 만들기</button>
-          </div>
-        ))}
-      {(status === "unavailable" || status === "none") &&
-        (noKey ? (
-          <>
-            {noKeyText}
-            {s.debrief_running && !gaveUp && <p className="muted small" role="status">답변을 기본 점검하는 중이에요…</p>}
-          </>
-        ) : hasTranscript ? (
-          <div className="row">
-            {status === "unavailable" && <span className="small muted grow">면접을 마칠 때 OpenAI 키가 없어 디브리프를 만들지 않았어요.</span>}
-            <button disabled={busy} onClick={onDebrief}>디브리프 만들기</button>
-          </div>
-        ) : (
-          <p className="muted small" style={{ margin: 0 }}>답변이 생기면 디브리프를 만들 수 있어요.</p>
-        ))}
+      {status === "failed" && (
+        <>
+          <p className="err" style={{ marginTop: 0 }}>디브리프를 만들지 못했어요.{hasCoaching && " 답변 코칭 결과는 아래 답변에 남아 있어요."}</p>
+          {noKeyText}
+        </>
+      )}
+      {(status === "unavailable" || status === "none") && (
+        <>
+          {noKeyText}
+          {s.debrief_running && !gaveUp && <p className="muted small" role="status">답변을 기본 점검하는 중이에요…</p>}
+        </>
+      )}
       {err && <p className="err">{err}</p>}
     </section>
   );
@@ -335,7 +308,6 @@ export default function SessionReview() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rubric, setRubric] = useState<CoachingRubric | null>(null);
-  const [ai, setAi] = useState<boolean | null>(null);
   const [gaveUp, setGaveUp] = useState(false);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardErr, setCardErr] = useState<string | null>(null);
@@ -383,8 +355,6 @@ export default function SessionReview() {
 
   useEffect(() => {
     api.rubric().then(setRubric).catch(() => {});
-    // 디브리프를 만들 수 있는지는 저장된 상태가 아니라 지금 키가 있는지로 정한다
-    api.health().then((h) => setAi(h.openai)).catch(() => {});
   }, []);
 
   // 답변 점검·디브리프 작업이 도는 동안 2.5초마다 확인하고, 2분이 지나면 멈춘다.
@@ -422,11 +392,6 @@ export default function SessionReview() {
       setCardBusy(false);
     }
   };
-  const makeDebrief = () =>
-    cardAct(async () => {
-      apply(await api.debrief(id));
-      setGaveUp(false);
-    });
   // '다시 시도'(작업이 사라졌거나 확인을 멈춘 뒤): 먼저 지금 상태를 다시 확인한다. 작업이 아직 돌고 있으면(마지막 진행 신호가 5분 안)
   // 재생성을 요청하지 않고 확인만 이어 가고, 'pending'인데 작업이 사라졌을 때(서버 재시작 등)만 다시 만들기를 요청한다.
   const retryDebrief = () =>
@@ -493,7 +458,7 @@ export default function SessionReview() {
       {refreshError && <div data-testid="review-refresh-error" className="err"><p>회고 자료를 다시 확인하지 못했어요. {refreshError}</p><button disabled={refreshBusy} onClick={reload}>회고 다시 불러오기</button></div>}
       {hasDirtyTranscript && <p className="small muted">저장하지 않은 전사문이 있어 해당 답변과 이후 대화 코칭·세션 요약·재연습 추천을 잠시 제외해요. 수정한 내용을 저장하거나 되돌려 주세요.</p>}
       <ReviewInsights s={reviewSession} />
-      <DebriefCard s={reviewSession} pauseContent={hasDirtyTranscript || refreshPending} ai={ai} gaveUp={gaveUp} busy={cardBusy || hasDirtyTranscript || refreshPending} err={cardErr} onDebrief={makeDebrief} onRetry={retryDebrief} />
+      <DebriefCard s={reviewSession} pauseContent={hasDirtyTranscript || refreshPending} gaveUp={gaveUp} busy={cardBusy || hasDirtyTranscript || refreshPending} err={cardErr} onRetry={retryDebrief} />
       <CompetencyPanel s={reviewSession}/>
       <VoiceReportCard s={s} dirtyAnswerIds={new Set(Object.keys(dirtyTranscripts).filter(id=>dirtyTranscripts[id]))} onCleared={()=>refreshDelivery(v=>v+1)}/>
       <VideoReportCard sessionId={s.id} answers={s.answers} onCleared={()=>refreshDelivery(v=>v+1)} />

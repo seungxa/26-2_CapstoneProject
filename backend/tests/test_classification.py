@@ -18,6 +18,18 @@ def session(client, h, q, **kw):
     assert r.status_code == 201, r.text
     return r.json()
 
+def store_debrief(session_id, lesson):
+    """예전 AI 요약 작업이 남긴 세션 요약(그때의 입력 지문 포함)을 저장한다. 지금은 요약을 만들지 않고 읽기만 한다."""
+    from app.db import SessionLocal
+    from app.debrief import debrief_fingerprint
+    from app.models import PracticeSession
+    with SessionLocal() as db:
+        s = db.get(PracticeSession, session_id)
+        s.debrief = {'lesson': lesson, 'next_action': '이전 행동', 'moments': [], 'generated_at': '2026-11-01T00:00:00+00:00',
+                     'model': 'legacy-model', 'input_sha256': debrief_fingerprint(s)}
+        s.debrief_status = 'done'
+        db.commit()
+
 def test_taxonomy(client):
     r = client.get('/practice/taxonomy')
     assert r.status_code == 200
@@ -157,98 +169,35 @@ def test_enabled_schema_validation_readonly(tmp_path):
     validate_insights_schema(engine)
     assert upgrade_sqlite(engine) == []
 
-def test_evidence_extension_invalid_isolated_and_server_owned(monkeypatch):
-    import json
-    from app import coaching, llm
-    from app.config import settings
-    from app.taxonomy import capture, classification_hash
-    from app.models import Question
-    from app.taxonomy import assign
-    q = Question(category='직무', text='질문')
-    assign(q, 'behavioral', ['problem_solving'])
-    snap = capture(q)
-    text = '제가 오류를 분석하고 캐시를 수정했습니다.'
-    base = coaching._basic(text, {})
-    monkeypatch.setattr(llm, 'available', lambda: True)
-    monkeypatch.setattr(settings, 'practice_competency_evidence_enabled', True)
-    calls = []
-
-    def reply(*a, **kw):
-        calls.append(a)
-        return json.dumps({**base, 'competency_evidence': {'observations': [{'competency_key': 'problem_solving', 'basis': 'past_action', 'quote': '제가 오류를 분석하고', 'reason': '원인 분석을 설명함'}], 'transcript_sha256': 'forged'}})
-    monkeypatch.setattr(llm, '_chat', reply)
-    report = coaching.build_report('질문', text, {}, [], classification=snap)
-    ev = report['competency_evidence']
-    assert ev['transcript_sha256'] != 'forged'
-    assert ev['question_classification_sha256'] == classification_hash(snap) and ev['status'] == 'analyzed'
-    assert ev['observations'][0]['quote'] in text and len(calls) == 1
-    for invalid in [None, [], {'observations': [{'competency_key': 'unknown_key', 'basis': 'past_action', 'quote': '제가 오류를 분석하고', 'reason': '설명'}]}, {'observations': [{'competency_key': 'problem_solving', 'basis': 'past_action', 'quote': '없는 인용문입니다', 'reason': '설명'}]}]:
-        monkeypatch.setattr(llm, '_chat', lambda *a, **k: json.dumps({**base, 'competency_evidence': invalid}))
-        report = coaching.build_report('질문', text, {}, [], classification=snap)
-        assert report['method'] == 'ai' and report.get('competency_evidence') is None and ('fallback_reason' not in report)
-    monkeypatch.setattr(settings, 'practice_competency_evidence_enabled', False)
-    monkeypatch.setattr(llm, '_chat', reply)
-    assert coaching.build_report('질문', text, {}, [], classification=snap).get('competency_evidence') is None
-
 def test_nonrequired_dictionary_competency_evidence_is_valid_but_not_unknown_keys():
-    from app import coaching, taxonomy
-    from app.models import Question
+    """예전 AI 코칭이 남긴 역량 근거는 읽을 때 검증한다: 질문이 요구하지 않은 사전 역량은 유효하고, 사전에 없는 key는 버린다."""
+    from app import taxonomy
+    from app.models import Question, transcript_hash
     q = Question(category='직무', text='문제 해결 경험')
     taxonomy.assign(q, 'behavioral', ['problem_solving'])
     snap = taxonomy.capture(q)
     transcript = '제가 방향을 제시하고 업무 책임을 나눴습니다.'
-    raw = {'observations':[{'competency_key':'leadership', 'basis':'past_action', 'quote':'제가 방향을 제시하고', 'reason':'방향 설정을 서술함'}]}
-    evidence = coaching._evidence(raw, transcript, snap)
-    assert evidence is not None
-    assert taxonomy.current_evidence(evidence, transcript, snap)['observations'][0]['competency_key'] == 'leadership'
-    raw['observations'][0]['competency_key'] = 'unknown_key'
-    assert coaching._evidence(raw, transcript, snap) is None
+    stored = {'status': 'analyzed', 'method': 'ai', 'taxonomy_version': snap['taxonomy_version'],
+              'assessment_version': 'competency-evidence-v1', 'generated_at': '2026-11-01T00:00:00+00:00', 'model': 'legacy-model',
+              'transcript_sha256': transcript_hash(transcript), 'question_classification_sha256': taxonomy.classification_hash(snap),
+              'observations': [{'competency_key': 'leadership', 'basis': 'past_action', 'quote': '제가 방향을 제시하고', 'reason': '방향 설정을 서술함'}]}
+    assert taxonomy.current_evidence(stored, transcript, snap)['observations'][0]['competency_key'] == 'leadership'
+    stored['observations'][0]['competency_key'] = 'unknown_key'
+    assert taxonomy.current_evidence(stored, transcript, snap) is None
 
 @pytest.mark.parametrize('field,value', [('transcript', '새로 작성한 답변입니다.'), ('self_rating', 2), ('reflection_note', '다음에는 검증 과정을 말하겠습니다.')])
-def test_debrief_hidden_after_any_input_edit(client, monkeypatch, field, value):
-    from app import llm
-    from app.config import settings
-    monkeypatch.setattr(settings, 'openai_api_key', 'test-placeholder')
-    monkeypatch.setattr(llm, 'debrief_summary', lambda *a, **k: {'lesson': '기존 답변의 교훈', 'next_action': '기존 행동', 'moments': []})
-    monkeypatch.setattr(llm, '_chat', lambda *a, **k: 'invalid')
+def test_debrief_hidden_after_any_input_edit(client, field, value):
     h = owner()
     s = session(client, h, question(client, h))
     aid = s['answers'][0]['id']
     client.patch(f'/practice/answers/{aid}', headers=h, json={'transcript': '제가 오류를 분석했습니다.'})
-    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)
+    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)  # 기본 점검까지 끝낸다
+    store_debrief(s['id'], '기존 답변의 교훈')
     before = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
     assert before['debrief'] and before['debrief']['input_sha256']
     client.patch(f'/practice/answers/{aid}', headers=h, json={field: value})
     after = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
     assert after['debrief'] is None and after['debrief_status'] != 'done'
-
-def test_debrief_edit_during_summary_discards_entire_narrative(client, monkeypatch):
-    from app import llm
-    from app.config import settings
-    from threading import Event
-    entered, resume = (Event(), Event())
-    monkeypatch.setattr(settings, 'openai_api_key', 'test-placeholder')
-    monkeypatch.setattr(llm, '_chat', lambda *a, **k: 'invalid')
-
-    def summary(*a, **k):
-        entered.set()
-        assert resume.wait(5)
-        return {'lesson': '예전 해석', 'next_action': '예전 행동', 'moments': []}
-    monkeypatch.setattr(llm, 'debrief_summary', summary)
-    h = owner()
-    s = session(client, h, question(client, h))
-    aid = s['answers'][0]['id']
-    client.patch(f'/practice/answers/{aid}', headers=h, json={'transcript': '제가 오류를 분석했습니다.'})
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        job = pool.submit(client.post, f'/practice/sessions/{s['id']}/debrief', headers=h)
-        assert entered.wait(5)
-        try:
-            client.patch(f'/practice/answers/{aid}', headers=h, json={'reflection_note': '수정한 메모'})
-        finally:
-            resume.set()
-        assert job.result(timeout=10).status_code == 200
-    got = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
-    assert got['debrief'] is None and got['debrief_status'] != 'done'
 
 def test_tag_only_and_explicit_empty_bundle_are_distinct_from_legacy_null(client):
     h = owner()
@@ -307,16 +256,17 @@ def test_generation_preferences_are_goals_and_invalid_metadata_stays_unclassifie
     calls = []
 
     def generate(*args, **kwargs):
-        calls.append(kwargs)
+        calls.append((args, kwargs))
         return [{'category': '직무', 'text': '유효한 질문 문장 A', 'question_type': 'bad', 'competency_keys': ['communication']}, {'category': '직무', 'text': '유효한 질문 문장 B'}, {'category': '직무', 'text': '유효한 질문 문장 C', 'question_type': 'knowledge', 'competency_keys': ['analytical_thinking'], 'tagging_source': 'manual'}]
-    monkeypatch.setattr(llm, 'generate_questions', generate)
+    monkeypatch.setattr(llm, 'template_questions', generate)
     r = client.post('/practice/questions/generate', headers=h, json={'company': '회사', 'competency_keys': ['problem_solving']})
     assert r.status_code == 201, r.text
-    assert calls[0]['classification_preferences']['competency_keys'] == ['problem_solving']
+    # Preferences are accepted but the templates do not use them.
+    assert calls == [(('회사', '', '', 5), {})]
     assert len(r.json()) == 3
     assert all((q['taxonomy_version'] is None and (not q['competency_keys']) for q in r.json()[:2]))
     assert r.json()[2]['competency_keys'] == ['analytical_thinking']
-    assert r.json()[2]['tagging_source'] in ('ai', 'rule')
+    assert r.json()[2]['tagging_source'] == 'rule'  # a forged source is never trusted
 
 def test_automatic_selection_rechecks_classification_after_lock(client, monkeypatch):
     from app.routers import practice
@@ -351,20 +301,16 @@ def test_session_list_filters_frozen_tags_not_current_question(client):
     assert client.get('/practice/sessions', headers=h, params={'competency_key': 'invalid'}).status_code == 422
 
 @pytest.mark.parametrize('change', ['question', 'order', 'report', 'snapshot', 'context', 'recording'])
-def test_debrief_fingerprint_covers_all_interpretation_inputs(client, monkeypatch, change):
-    from app import llm
-    from app.config import settings
+def test_debrief_fingerprint_covers_all_interpretation_inputs(client, change):
     from app.db import SessionLocal
     from app.models import PracticeAnswer
     from datetime import datetime, timezone
-    monkeypatch.setattr(settings, 'openai_api_key', 'test-placeholder')
-    monkeypatch.setattr(llm, '_chat', lambda *a, **k: 'invalid')
-    monkeypatch.setattr(llm, 'debrief_summary', lambda *a, **k: {'lesson': '검증된 이전 교훈', 'next_action': '이전 행동', 'moments': []})
     h = owner()
     s = session(client, h, question(client, h))
     aid = s['answers'][0]['id']
     client.patch(f'/practice/answers/{aid}', headers=h, json={'transcript': '제가 오류를 분석했습니다.'})
-    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)
+    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)  # 기본 점검까지 끝낸다
+    store_debrief(s['id'], '검증된 이전 교훈')
     assert client.get(f'/practice/sessions/{s['id']}', headers=h).json()['debrief']
     with SessionLocal() as db:
         a = db.get(PracticeAnswer, aid)
@@ -384,19 +330,16 @@ def test_debrief_fingerprint_covers_all_interpretation_inputs(client, monkeypatc
     result = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
     assert result['debrief'] is None and result['debrief_status'] == 'none'
 
-def test_question_retagging_does_not_rewrite_past_debrief_inputs(client, monkeypatch):
-    from app import llm
-    from app.config import settings
-    monkeypatch.setattr(settings, 'openai_api_key', 'test-placeholder')
-    monkeypatch.setattr(llm, '_chat', lambda *a, **k: 'invalid')
-    monkeypatch.setattr(llm, 'debrief_summary', lambda *a, **k: {'lesson': '고정된 분류의 교훈', 'next_action': '다음 행동', 'moments': []})
+def test_question_retagging_does_not_rewrite_past_debrief_inputs(client):
     h = owner()
     q = question(client, h)
     s = session(client, h, q)
     aid = s['answers'][0]['id']
     client.patch(f'/practice/answers/{aid}', headers=h, json={'transcript': '제가 오류를 분석했습니다.'})
-    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)
+    client.post(f'/practice/sessions/{s['id']}/debrief', headers=h)  # 기본 점검까지 끝낸다
+    store_debrief(s['id'], '고정된 분류의 교훈')
     before = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
+    assert before['debrief']['lesson'] == '고정된 분류의 교훈'
     client.put(f'/practice/questions/{q['id']}/classification', headers=h, json={'question_type': 'knowledge', 'competency_keys': ['technical_expertise']})
     after = client.get(f'/practice/sessions/{s['id']}', headers=h).json()
     assert before['debrief'] == after['debrief'] and before['answers'][0]['question_classification'] == after['answers'][0]['question_classification']
@@ -415,7 +358,7 @@ def test_schema_flags_default_off_and_enabled_pg_startup_checks_readonly(tmp_pat
     from app import db
     from sqlalchemy import event
     assert Settings({}).practice_insights_enabled is False
-    assert Settings({}).practice_competency_evidence_enabled is False
+    assert not hasattr(Settings({}), 'practice_competency_evidence_enabled')  # optional AI evidence was removed
     engine = db.make_engine(f'sqlite:///{tmp_path / 'unmigrated.db'}')
     seen = []
     event.listen(engine, 'before_cursor_execute', lambda conn, cursor, stmt, params, ctx, many: seen.append(stmt))

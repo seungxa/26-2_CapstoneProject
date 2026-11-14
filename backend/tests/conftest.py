@@ -6,18 +6,14 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 # 녹음도 임시 폴더에(개발용 backend/recordings/를 건드리지 않게). .env보다 먼저 정해 둔다
 os.environ["RECORDINGS_DIR"] = f"{_tmp}/recordings"
 os.environ["AUTH_DISABLED"] = "true"
-os.environ["OPENAI_API_KEY"] = ""
 os.environ["SUPABASE_URL"] = ""
 os.environ["AUDIO_RETENTION_DAYS"] = "30"
 os.environ["PURGE_INTERVAL_MIN"] = "60"
-# 개발자가 e2e용 가짜 서버로 바꿔 둔 값(.env 포함)이 테스트에 끼어들지 않게 기본값으로 고정한다
-os.environ["OPENAI_BASE_URL"] = "https://api.openai.com/v1"
-os.environ["OPENAI_FEEDBACK_MODEL"] = ""
-# 기존 전사 테스트는 OpenAI 경로(모의 응답)를 검사한다. 로컬 전사는 test_local_stt.py가 제공자를 바꿔 끼워 검사한다
-os.environ["STT_PROVIDER"] = "openai"
+# 자동 전사는 기본으로 끈다. 전사가 필요한 테스트는 fake_stt(가짜 로컬 제공자)를, 로컬 faster-whisper 자체는
+# test_local_stt.py가 가짜 모델을 끼워 검사한다
+os.environ["STT_PROVIDER"] = "off"
 
 os.environ["PRACTICE_INSIGHTS_ENABLED"] = "true"
-os.environ["PRACTICE_COMPETENCY_EVIDENCE_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -29,6 +25,53 @@ from app.main import app  # noqa: E402
 def client():
     with TestClient(app) as c:
         yield c
+
+
+class FakeStt:
+    """가짜 로컬 전사 제공자(stt._Local 자리에 끼운다). 녹음 내용과 상관없이 reply를 돌려준다.
+
+    reply: 돌려줄 전사문, 또는 던질 예외(실제 제공자처럼 stt.STTError). 빈 전사문은 실제 제공자처럼 no_speech 실패다.
+    calls: 받은 (audio, filename, content_type).
+    """
+
+    name = "local"
+
+    def __init__(self):
+        self.reply: str | Exception = "가짜 전사문입니다."
+        self.calls: list = []
+
+    def available(self) -> bool:
+        return True
+
+    def unavailable_reason(self) -> str:
+        return ""
+
+    def details(self) -> dict:
+        return {"model": "fake", "state": "ready", "error": None}
+
+    def transcribe(self, audio: bytes, filename: str, content_type: str) -> str:
+        from app import stt
+
+        self.calls.append((audio, filename, content_type))
+        reply = self.reply
+        if isinstance(reply, BaseException):
+            raise reply
+        if not reply.strip():
+            raise stt.STTError("no_speech", "말소리를 인식하지 못했어요")
+        return reply
+
+
+@pytest.fixture
+def fake_stt(monkeypatch) -> FakeStt:
+    """자동 전사를 켜고(STT_PROVIDER=local) 로컬 제공자를 FakeStt로 바꿔 끼운다. 전사를 잠시 끄려면
+    monkeypatch.setattr(settings, "stt_provider", "off")."""
+    from app import stt
+    from app.config import settings
+
+    fake = FakeStt()
+    monkeypatch.setitem(stt._PROVIDERS, "local", fake)
+    monkeypatch.setattr(settings, "stt_provider", "local")
+    return fake
 
 
 @pytest.fixture

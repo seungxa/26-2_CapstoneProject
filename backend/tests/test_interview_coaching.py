@@ -1,11 +1,8 @@
 """The coaching loop must keep the actual source and never fabricate evidence."""
-import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
 
-from app import llm
-from app.config import settings
 from app import coaching
 
 
@@ -139,50 +136,6 @@ def test_redrill_uses_weak_answers_and_the_same_frozen_context(client):
     assert drill["context_snapshot"]["drill_targets"][0]["answer_id"] == aid
     assert client.get(f"/practice/sessions/{s['id']}", headers=h).json()["answers"][0]["transcript"]
     assert client.post(f"/practice/sessions/{s['id']}/redrill", headers={"X-User-Id": "outsider"}).status_code == 404
-
-
-def test_model_fabricated_quotes_fall_back_to_basic_report(client, monkeypatch):
-    h, s, _, _, submitted = make_session(client)
-    aid = answer(client, h, s)
-    monkeypatch.setattr(settings, "openai_api_key", "test-only")
-    forged = {
-        "summary": "검증되지 않은 결론", "next_action": "다시 연습하세요",
-        "criteria": [{"key": key, "label": key, "status": "충분", "reason": "근거",
-                      "answer_quote": "사용자가 말하지 않은 내용", "source_quote": "",
-                      "source_version_id": None} for key in ["specificity", "relevance", "consistency"]],
-        "followup": {"text": "어떻게 측정했나요?", "focus": "specificity", "reason": "근거",
-                     "answer_quote": "가짜 인용", "source_quote": "가짜 자소서", "source_version_id": submitted["id"]},
-    }
-    monkeypatch.setattr(llm, "_chat", lambda *args, **kwargs: json.dumps(forged))
-    r = client.post(f"/practice/answers/{aid}/coach", headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json()["coaching_report"]["method"] == "basic"
-    assert "가짜" not in json.dumps(r.json(), ensure_ascii=False)
-
-
-def test_model_valid_evidence_is_kept_and_external_failure_is_recoverable(client, monkeypatch):
-    import httpx
-    h, s, _, _, submitted = make_session(client)
-    text = "제가 캐시를 설계했습니다."
-    aid = answer(client, h, s, text)
-    raw = {
-        "summary": "측정 조건을 더 설명해 보세요.", "next_action": "전후 비교 조건을 정리하세요.",
-        "criteria": [{"key": key, "label": key, "status": "보완", "reason": "측정 조건 설명이 부족합니다.",
-                      "answer_quote": text, "source_quote": submitted["content"],
-                      "source_version_id": submitted["id"]} for key in ["specificity", "relevance", "consistency"]],
-        "followup": {"text": "측정 조건은 무엇인가요?", "focus": "specificity", "reason": "비교 기준을 확인합니다.",
-                     "answer_quote": text, "source_quote": submitted["content"], "source_version_id": submitted["id"]},
-    }
-    monkeypatch.setattr(settings, "openai_api_key", "test-only")
-    monkeypatch.setattr(llm, "_chat", lambda *args, **kwargs: json.dumps(raw))
-    r = client.post(f"/practice/answers/{aid}/coach", headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json()["coaching_report"]["method"] == "ai"
-    def offline(*args, **kwargs):
-        raise httpx.ConnectError("offline")
-    monkeypatch.setattr(llm, "_chat", offline)
-    r = client.post(f"/practice/answers/{aid}/coach", headers=h)
-    assert r.status_code == 200 and r.json()["coaching_report"]["method"] == "basic"
 
 
 def test_followup_questions_are_not_recycled_into_the_question_bank(client):

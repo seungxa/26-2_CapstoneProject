@@ -13,7 +13,9 @@ import pytest
 av = pytest.importorskip("av")
 np = pytest.importorskip("numpy")
 
-from app import llm, stt  # noqa: E402
+import httpx  # noqa: E402
+
+from app import stt  # noqa: E402
 from app.config import settings  # noqa: E402
 
 SPEECH = ["  안녕하세요. ", "", "저는 캐시를 직접 설계했습니다."]
@@ -78,10 +80,9 @@ class Fake:
 
 @pytest.fixture
 def local(monkeypatch):
-    """로컬 제공자를 새로 만들어(모델을 불러오지 않은 상태) 가짜 faster-whisper를 끼운다. OpenAI 키는 비운다."""
+    """로컬 제공자를 새로 만들어(모델을 불러오지 않은 상태) 가짜 faster-whisper를 끼운다."""
     fake = Fake()
     monkeypatch.setattr(settings, "stt_provider", "local")
-    monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "local_stt_model", "base")
     monkeypatch.setattr(settings, "local_stt_model_dir", "")
     monkeypatch.setattr(settings, "local_stt_allow_download", True)
@@ -104,9 +105,9 @@ def upload(client, h, aid, data):
                        files={"file": ("answer.webm", data, "audio/webm;codecs=opus")})
 
 
-def test_local_transcribes_korean_without_openai_key(client, local, monkeypatch):
+def test_local_transcribes_korean_without_sending_audio_out(client, local, monkeypatch):
     sent = []
-    monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: sent.append(a) or pytest.fail("OpenAI를 부르면 안 된다"))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: sent.append(a) or pytest.fail("녹음을 외부로 보내면 안 된다"))
     h, aid = answer(client)
     r = upload(client, h, aid, webm(1.0))
     assert r.status_code == 200, r.text
@@ -298,7 +299,7 @@ def test_keep_audio_then_edit_coach_and_delete_still_work(client, local):
     edited = client.patch(f"/practice/answers/{aid}", headers=h, json={"transcript": "제가 직접 캐시를 설계해 응답 시간을 40% 줄였습니다."})
     assert edited.status_code == 200 and edited.json()["transcript"].startswith("제가 직접")
     coached = client.post(f"/practice/answers/{aid}/coach", headers=h).json()
-    assert coached["coaching_report"]["method"] == "basic"  # 키가 없으니 기본 점검
+    assert coached["coaching_report"]["method"] == "basic"  # 코칭은 규칙 기반 기본 점검
     deleted = client.delete(f"/practice/answers/{aid}/audio", headers=h).json()
     assert deleted["audio_available"] is False and deleted["transcript"].startswith("제가 직접")
     assert client.get(f"/practice/answers/{aid}/audio", headers=h).status_code == 404
@@ -320,30 +321,20 @@ def test_not_installed_is_unavailable(client, local, monkeypatch):
     assert r.status_code == 503 and "faster-whisper" in r.json()["detail"]
 
 
-def test_off_provider_is_unavailable_even_with_openai_key(client, local, monkeypatch):
-    monkeypatch.setattr(settings, "stt_provider", "off")
-    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
-    monkeypatch.setattr(llm, "transcribe", lambda *a: pytest.fail("off이면 전사하지 않는다"))
+@pytest.mark.parametrize("provider", ["off", "openai"])
+def test_off_or_removed_provider_is_unavailable(client, local, monkeypatch, provider):
+    """off, and the removed openai provider (an old .env value), both leave transcription off."""
+    monkeypatch.setattr(settings, "stt_provider", provider)
     h, aid = answer(client)
     assert upload(client, h, aid, webm()).json()["stt_status"] == "unavailable"
     r = client.post(f"/practice/answers/{aid}/transcribe", headers=h)
     assert r.status_code == 503 and "STT_PROVIDER=off" in r.json()["detail"]
+    assert local.calls == []
     health = client.get("/health").json()
-    assert health["openai"] is True and health["stt"]["provider"] == "off" and health["stt"]["available"] is False
+    assert health["stt"]["provider"] == "off" and health["stt"]["available"] is False
 
 
-def test_health_separates_stt_from_ai_coaching(client, local):
+def test_health_reports_the_local_provider(client, local):
     health = client.get("/health").json()
-    assert health["openai"] is False  # AI 코칭·질문 생성·디브리프는 꺼짐
+    assert set(health) == {"ok", "stt", "auth_disabled"}
     assert health["stt"]["provider"] == "local" and health["stt"]["available"] is True
-
-
-def test_openai_provider_still_uses_openai_with_key(client, monkeypatch):
-    monkeypatch.setattr(settings, "stt_provider", "openai")
-    monkeypatch.setattr(settings, "openai_api_key", "")
-    assert client.get("/health").json()["stt"] == {"provider": "openai", "available": False,
-                                                   "model": settings.openai_stt_model, "state": None, "error": None}
-    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
-    monkeypatch.setattr(llm, "transcribe", lambda audio, filename, ctype: "오픈AI 전사")
-    h, aid = answer(client)
-    assert upload(client, h, aid, b"simulated").json()["transcript"] == "오픈AI 전사"

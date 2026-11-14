@@ -73,10 +73,10 @@ export interface CoachingRubric {
   note: string;
 }
 
-/** 음성 전사 제공자 상태(/health). LLM(AI 코칭·질문 생성·디브리프)의 OpenAI 키(`openai`)와 따로 판단한다 */
+/** 음성 전사 제공자 상태(/health) */
 export interface SttStatus {
-  /** local: 서버 CPU에서 faster-whisper로 전사(외부 전송 없음) · openai: OpenAI 음성 인식 · off: 꺼짐 */
-  provider: "local" | "openai" | "off";
+  /** local: 서버 CPU에서 faster-whisper로 전사(외부 전송 없음) · off: 꺼짐 */
+  provider: "local" | "off";
   available: boolean;
   model: string | null;
   /** local만: 모델을 아직 안 불렀음(첫 전사 때 불러옴) · 부르는 중 · 준비됨 · 마지막 시도 실패 */
@@ -87,8 +87,6 @@ export interface SttStatus {
 
 export interface Health {
   ok: boolean;
-  /** OpenAI 키가 있는가: AI 답변 코칭·꼬리질문·맞춤 질문·세션 디브리프 */
-  openai: boolean;
   stt: SttStatus;
   auth_disabled: boolean;
 }

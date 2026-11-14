@@ -26,7 +26,6 @@ function sttState(stt: SttStatus) {
 /** 녹음 동의·원본 보관·삭제를 관리하는 화면 */
 export default function PracticeSettings() {
   const [st, setSt] = useState<Settings | null>(null);
-  const [openai, setOpenai] = useState<boolean | null>(null);
   const [stt, setStt] = useState<SttStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; warn: boolean } | null>(null);
@@ -34,10 +33,7 @@ export default function PracticeSettings() {
 
   useEffect(() => {
     api.settings().then(setSt).catch((e) => setErr(e.message));
-    api.health().then((h) => {
-      setOpenai(h.openai);
-      setStt(h.stt);
-    }).catch(() => {});
+    api.health().then((h) => setStt(h.stt)).catch(() => {});
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
@@ -140,7 +136,7 @@ export default function PracticeSettings() {
 
       <section className="card">
         <h2>무엇을 어디로 보내나요</h2>
-        {openai === false && <p className="small muted">지금은 OpenAI 키가 없어 OpenAI로 보내는 것은 없어요.</p>}
+        <p className="small muted">지금은 OpenAI 키가 없어 OpenAI로 보내는 것은 없어요.</p>
         <ul className="bullets small">
           <li><b>원본 녹음</b> → JobSeeker 저장소. 전사 직후 지우고, 보관을 켰거나 전사하지 못한 녹음은 {days}일이 지나면 자동으로 지워요.</li>
           <li><b>원본 녹음</b> → 음성 전사. {sttDestination(stt)}{stt && <> {sttState(stt)}</>}</li>

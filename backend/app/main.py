@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
-from . import llm, stt
+from . import stt
 from .config import settings
 from .db import SessionLocal, init_db
 from .retention import purge_loop, run_purge
@@ -20,8 +20,8 @@ from .seed import seed_question_bank
 async def lifespan(_: FastAPI):
     settings.check()  # 띄워도 동작할 수 없는 설정(인증을 켰는데 JWT 비밀값 없음 등)이면 시작하지 않는다
     init_db()
-    if settings.stt_provider not in ("local", "openai", "off"):
-        logging.getLogger(__name__).warning("STT_PROVIDER=%r is not local|openai|off: transcription is off",
+    if settings.stt_provider not in ("local", "off"):
+        logging.getLogger(__name__).warning("STT_PROVIDER=%r is not local|off: transcription is off",
                                             settings.stt_provider)
     with SessionLocal() as db:
         seed_question_bank(db)
@@ -61,5 +61,5 @@ async def invalid_id(_: Request, exc: DataError):
 
 @app.get("/health")
 def health():
-    """openai: LLM(맞춤 질문·AI 답변 코칭·꼬리질문·디브리프)에 쓸 키가 있는가. stt: 음성 전사 제공자와 상태(따로 판단)."""
-    return {"ok": True, "openai": llm.available(), "stt": stt.status(), "auth_disabled": settings.auth_disabled}
+    """stt: 음성 전사 제공자와 상태. 외부 AI 서비스는 쓰지 않으므로 그 상태는 없다."""
+    return {"ok": True, "stt": stt.status(), "auth_disabled": settings.auth_disabled}

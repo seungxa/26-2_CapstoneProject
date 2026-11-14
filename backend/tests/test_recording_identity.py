@@ -1,5 +1,5 @@
 """Recording/transcript association survives refresh, corrections and replacement."""
-from .test_transcription import provider, session_answer
+from .test_transcription import session_answer
 from app.config import settings
 import os
 import subprocess
@@ -15,8 +15,8 @@ def upload(client, headers, answer_id):
     return result.json()
 
 
-def test_recording_text_identity_survives_refresh_and_replacement(client, monkeypatch):
-    provider(monkeypatch, {"text": "제가 오류를 고쳤습니다."})
+def test_recording_text_identity_survives_refresh_and_replacement(client, fake_stt):
+    fake_stt.reply = "제가 오류를 고쳤습니다."
     h, aid = session_answer(client)
     first = upload(client, h, aid)
     assert first.get("recording_transcript_current") is True
@@ -53,9 +53,9 @@ def test_explicit_typed_answer_does_not_acquire_historical_recording_identity(cl
 
 
 @pytest.mark.parametrize("replace_recording", [True, False])
-def test_feature_off_changes_cannot_reuse_a_previous_recording_identity(client, monkeypatch, isolated_db, tmp_path, replace_recording):
+def test_feature_off_changes_cannot_reuse_a_previous_recording_identity(client, fake_stt, isolated_db, tmp_path, replace_recording):
     text = "제가 오류를 고쳤습니다."
-    provider(monkeypatch, {"text": text})
+    fake_stt.reply = text
     h, aid = session_answer(client)
     assert upload(client, h, aid)["recording_transcript_current"] is True
     sid = client.get("/practice/sessions", headers=h).json()[0]["id"]

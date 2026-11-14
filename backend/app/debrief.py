@@ -1,14 +1,15 @@
-"""세션 종료 후 자동 디브리프와 다시 연습할 답변 고르기.
+"""세션 종료 후 자동 디브리프 작업과 다시 연습할 답변 고르기.
 
-디브리프는 BackgroundTasks로 돌고 자체 DB 세션을 연다. 먼저 코칭 보고서가 없는 답변을 /coach와 같은 경로로
-점검하고(키가 없으면 기본 점검), 키가 있을 때만 세션 전체 요약을 만든다. 다시 연습할 답변은 AI 없이 규칙으로 정한다.
-점검은 오래 걸리므로(답변마다 LLM 호출) 그 사이 사용자가 전사문을 고칠 수 있다. 고친 답변은 /coach처럼 409로 버리고
-다음 바퀴에서 새 전사문으로 다시 점검한다.
+작업은 BackgroundTasks로 돌고 자체 DB 세션을 연다. 하는 일은 두 가지다: 코칭 보고서가 없는 답변을 /coach와 같은
+경로(규칙 기반 기본 점검)로 점검하고, 다시 연습할 답변은 규칙으로 고른다(응답마다 다시 계산). 세션 요약은 만들지 않는다.
+세션 행에 저장된 예전 요약(debrief)과 그 상태(debrief_status)는 읽기만 한다. 예외로, 예전 요약 작업이 남긴 'pending'은
+끝낼 작업이 없으니 다음 종료·재생성 요청에서 'none'으로 정리한다.
+점검하는 동안 사용자가 전사문을 고칠 수 있다. 고친 답변은 /coach처럼 409로 버리고 다음 바퀴에서 새 전사문으로 다시 점검한다.
 
 작업은 세션 행에 표시를 남긴다: 시작 시각(debrief_started_at, 작업마다 달라 그 작업의 표시), 살아 있다는 신호
-(debrief_heartbeat_at, 답변 하나를 점검할 때마다와 요약 전에), 작업 중에 들어온 종료·재생성 요청(debrief_requested_at).
-신호가 5분 넘게 끊긴 작업만 사라진 것으로 보고 새로 시작한다. 작업 중에 요청이 들어오면 작업이 결과를 쓰기 전에
-한 바퀴 더 돌아 그 사이 저장된 답변까지 담는다. 이어받힌 옛 작업은 결과를 쓰지 않고 멈춘다.
+(debrief_heartbeat_at, 답변 하나를 점검할 때마다), 작업 중에 들어온 종료·재생성 요청(debrief_requested_at).
+신호가 5분 넘게 끊긴 작업만 사라진 것으로 보고 새로 시작한다. 작업 중에 요청이 들어오면 작업이 끝나기 전에
+한 바퀴 더 돌아 그 사이 저장된 답변까지 점검한다. 이어받힌 옛 작업은 표시를 지우지 않고 멈춘다.
 """
 import logging
 from datetime import datetime, timedelta, timezone
@@ -16,8 +17,6 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from . import coaching, llm
-from .config import settings
 from .db import SessionLocal
 from .models import PracticeAnswer, PracticeSession
 from .taxonomy import classification_hash
@@ -28,7 +27,7 @@ log = logging.getLogger(__name__)
 
 MAX_DRILL = 20  # 다시 연습 세션에 담는 답변 수 상한
 # 작업의 마지막 신호가 이보다 오래되면 작업이 사라진 것(서버 재시작 등)으로 보고 다시 시작할 수 있다.
-# 신호 사이에는 LLM 호출 하나만 있다(호출 시간 제한 60초)
+# 신호 사이에는 답변 하나의 기본 점검만 있다
 DEBRIEF_STALE_AFTER = timedelta(minutes=5)
 MAX_PASSES = 3  # 작업 중에 들어온 요청 때문에 다시 도는 횟수 상한(요청이 계속 와도 끝나게)
 _JOB_FIELDS = ["debrief_status", "debrief_started_at", "debrief_heartbeat_at", "debrief_requested_at"]
@@ -43,13 +42,9 @@ def _has_transcript(a: PracticeAnswer) -> bool:
 
 
 def _needs_coaching(a: PracticeAnswer) -> bool:
-    """전사문은 있는데 지금 전사문을 채점한 보고서가 없다. 키가 있으면 AI 점검이 실패해 기본 점검으로 대신한
-    보고서(fallback_reason)도 다시 점검한다(한 작업에 한 번)."""
-    if not _has_transcript(a):
-        return False
-    report = a.coaching_report
-    # Legacy reports remain readable history; never regrade them automatically.
-    return not report or bool(report.get("input_status") != "legacy_unverified" and report.get("fallback_reason") and llm.available())
+    """전사문은 있는데 지금 전사문을 채점한 보고서가 없다. 있는 보고서(예전 AI 보고서, AI 실패로 대신 붙은
+    기본 점검 포함)는 기록으로 두고 다시 점검하지 않는다."""
+    return _has_transcript(a) and not a.coaching_report
 
 
 def drill_picks(s: PracticeSession) -> list[tuple[PracticeAnswer, list[str], int | None]]:
@@ -99,10 +94,10 @@ def _lock(db: Session, session_id: str) -> None:
 
 
 def prepare_debrief(db: Session, s: PracticeSession) -> bool:
-    """종료·재생성 요청에서 상태를 동기로 정한다(커밋은 호출한 쪽에서). 백그라운드 작업을 붙여야 하면 True.
+    """종료·재생성 요청에서 작업을 붙일지 동기로 정한다(커밋은 호출한 쪽에서). 점검할 답변이 있어 백그라운드 작업을 붙여야 하면 True.
 
-    키가 없으면 'unavailable'(요약은 만들지 않지만 기본 점검은 돈다), 전사문이 없으면 'none', 그 밖에는 'pending'.
-    이미 도는 작업이 있으면 작업을 하나 더 붙이지 않고 요청 시각만 남긴다: 그 작업이 결과를 쓰기 전에 보고 한 바퀴 더 돈다.
+    저장된 요약과 상태는 바꾸지 않는다. 예전 요약 작업이 남긴 'pending'만 'none'으로 정리한다(그 작업은 다시 오지 않는다).
+    이미 도는 작업이 있으면 작업을 하나 더 붙이지 않고 요청 시각만 남긴다: 그 작업이 끝나기 전에 보고 한 바퀴 더 돈다.
     """
     _lock(db, s.id)
     db.refresh(s, _JOB_FIELDS)  # 잠근 뒤 다시 읽는다: 다른 요청이 막 작업을 붙였거나 작업이 막 끝났을 수 있다
@@ -110,13 +105,9 @@ def prepare_debrief(db: Session, s: PracticeSession) -> bool:
     if debrief_running(s, now):
         s.debrief_requested_at = now
         return False
-    if not llm.available():
-        s.debrief_status = "unavailable"
-    elif not any(_has_transcript(a) for a in s.answers):
+    if s.debrief_status == "pending":
         s.debrief_status = "none"
-    else:
-        s.debrief_status = "pending"
-    start = s.debrief_status == "pending" or any(_needs_coaching(a) for a in s.answers)
+    start = any(_needs_coaching(a) for a in s.answers)
     if start:
         s.debrief_started_at = s.debrief_heartbeat_at = now
         s.debrief_requested_at = None
@@ -131,7 +122,7 @@ def _load(db: Session, session_id: str) -> PracticeSession | None:
 
 
 def run_debrief(session_id: str) -> None:
-    """코칭 보고서가 없는 답변을 점검한 뒤(키가 있으면) 세션 디브리프를 만든다(BackgroundTask)."""
+    """코칭 보고서가 없는 답변을 기본 점검한다(BackgroundTask)."""
     try:
         with SessionLocal() as db:
             s = _load(db, session_id)
@@ -190,31 +181,10 @@ def debrief_fingerprint(s: PracticeSession) -> str:
         for a in sorted(s.answers,key=lambda a:(a.order_no,a.id))]})
 
 
-def _summary_items(s: PracticeSession) -> list[dict]:
-    items = []
-    for a in s.answers:
-        report = answer_coaching.current_report(a) or {}
-        items.append({"answer_id": a.id, "order_no": a.order_no, "question": a.question.text,
-                      "transcript": a.transcript or "", "self_rating": a.self_rating,
-                      "reflection_note": a.reflection_note, "coaching_method": report.get("method"),
-                      "coaching": {c["label"]: c["status"] for c in report.get("criteria", [])}})
-    return items
+def _settle(db: Session, s: PracticeSession, mine: datetime | None, pass_started: datetime, last: bool) -> bool:
+    """작업을 끝낸다. 이 바퀴를 시작한 뒤 종료·재생성 요청이 들어왔으면 끝내지 않고 False(한 바퀴 더).
 
-
-def _summarize(s: PracticeSession, items: list[dict]) -> tuple[str, dict | None]:
-    """(상태, 요약). 실패하면 ('failed', None): 점검 결과(앞 단계)는 그대로 둔다."""
-    try:
-        return "done", llm.debrief_summary(items, {c["label"]: c["checks"] for c in coaching.CRITERIA})
-    except Exception:
-        log.exception("세션 디브리프 생성 실패(%s)", s.id)
-        return "failed", None
-
-
-def _settle(db: Session, s: PracticeSession, mine: datetime | None, pass_started: datetime,
-            status: str, summary: dict | None, last: bool, input_hash: str | None = None) -> bool:
-    """결과를 쓰고 작업을 끝낸다. 이 바퀴를 시작한 뒤 종료·재생성 요청이 들어왔으면 쓰지 않고 False(한 바퀴 더).
-
-    세션 행을 잠그고 확인하므로, 결과를 쓰는 사이에 들어온 요청은 이 작업이 끝난 뒤 새 작업을 시작한다.
+    세션 행을 잠그고 확인하므로, 끝내는 사이에 들어온 요청은 이 작업이 끝난 뒤 새 작업을 시작한다.
     """
     _lock(db, s.id)
     db.refresh(s, _JOB_FIELDS)
@@ -225,20 +195,6 @@ def _settle(db: Session, s: PracticeSession, mine: datetime | None, pass_started
     if not last and requested and _utc(requested) >= pass_started:
         db.commit()
         return False
-    if summary is not None:
-        # Reload after taking the session lock. A changed reflection, report or recording
-        # invalidates the whole narrative, even when every quote still occurs verbatim.
-        db.expire_all()
-        s=_load(db,s.id)
-        if s is None: raise _Superseded
-        if input_hash != debrief_fingerprint(s):
-            summary=None
-            s.debrief=None
-            status="none"
-        else:
-            s.debrief={**summary,"generated_at":_now().isoformat(),"model":settings.openai_feedback_model,
-                       "input_sha256":input_hash}
-    s.debrief_status = status
     s.debrief_started_at = s.debrief_heartbeat_at = s.debrief_requested_at = None  # 다음 요청은 새로 시작한다
     db.commit()
     return True
@@ -247,29 +203,12 @@ def _settle(db: Session, s: PracticeSession, mine: datetime | None, pass_started
 def _run(db: Session, s: PracticeSession) -> None:
     mine = s.debrief_started_at  # 이 작업의 표시
     tried: set[tuple[str, str]] = set()
-    last_items: list[dict] | None = None
-    result: tuple[str, dict | None] = ("failed", None)
-    result_hash: str | None = None
     try:
         for n in range(MAX_PASSES):
             pass_started = _now()
             db.refresh(s)  # 작업 중에 생긴 답변(꼬리질문)도 담는다
             _coach_all(db, s, mine, tried)
-            input_hash=None
-            if not llm.available():
-                status, summary = "unavailable", None
-            elif not any(_has_transcript(a) for a in s.answers):
-                status, summary = "none", None
-            else:
-                input_hash=debrief_fingerprint(s)
-                items = _summary_items(s)
-                # 다시 도는 바퀴에서 요약 재료가 그대로면 만든 요약을 다시 쓴다(같은 요청을 또 보내지 않는다)
-                if items != last_items or input_hash != result_hash or result[0] != "done":
-                    _beat(db, s, mine)
-                    last_items, result = items, _summarize(s, items)
-                    result_hash=input_hash
-                status, summary = result
-            if _settle(db, s, mine, pass_started, status, summary, last=n == MAX_PASSES - 1,input_hash=input_hash):
+            if _settle(db, s, mine, pass_started, last=n == MAX_PASSES - 1):
                 return
     except _Superseded:
         log.info("다른 디브리프 작업이 이어받아 이 작업을 멈춥니다(%s)", s.id)

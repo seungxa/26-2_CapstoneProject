@@ -1,11 +1,10 @@
-"""음성 전사(STT) 제공자. STT_PROVIDER=local|openai|off 중 하나를 쓴다.
+"""음성 전사(STT) 제공자. STT_PROVIDER=local|off 중 하나를 쓴다.
 
 local  : faster-whisper(다국어 Whisper)로 이 서버의 CPU에서 한국어로 전사한다. 녹음을 외부로 보내지 않는다.
          모델은 첫 전사 때 한 번 불러와 재사용한다. 캐시에 있으면 네트워크 없이 쓰고, 없을 때만 한 번 내려받는다.
-openai : OpenAI 음성 인식 API(llm.transcribe). OPENAI_API_KEY가 있어야 한다.
 off    : 자동 전사를 끈다. 녹음은 저장하고 stt_status는 unavailable.
 
-전사 가능 여부는 LLM(맞춤 질문·답변 코칭·디브리프)의 OpenAI 키와 따로 판단한다.
+그 밖의 값(예전 openai 포함)은 꺼짐으로 본다. 앱이 시작할 때 경고를 남긴다.
 전사하지 못한 녹음은 STTError로 알린다. 라우터는 이를 실패(stt_status=failed)로 보고 원본을 남겨 다시 시도하게 한다.
 """
 import gc
@@ -17,9 +16,6 @@ import sys
 import threading
 import time
 
-import httpx
-
-from . import llm
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -54,34 +50,6 @@ class _Off:
 
     def details(self) -> dict:
         return {}
-
-
-# ───────── OpenAI ─────────
-
-class _OpenAI:
-    """기존 OpenAI 음성 인식. 호출 시점에 llm.transcribe를 찾으므로 테스트가 바꿔 끼울 수 있다."""
-
-    name = "openai"
-
-    def available(self) -> bool:
-        return llm.available()
-
-    def unavailable_reason(self) -> str:
-        return "OPENAI_API_KEY가 설정되지 않아 전사를 할 수 없습니다"
-
-    def transcribe(self, audio: bytes, filename: str, content_type: str) -> str:
-        try:
-            text = llm.transcribe(audio, filename, content_type)
-        except httpx.HTTPError as e:
-            raise STTError("provider_error", "음성 인식 요청이 실패했어요") from e
-        except llm.TranscriptionError as e:
-            raise STTError("no_speech", "말소리를 인식하지 못했어요") from e
-        if not (text or "").strip():
-            raise STTError("no_speech", "말소리를 인식하지 못했어요")
-        return text.strip()
-
-    def details(self) -> dict:
-        return {"model": settings.openai_stt_model}
 
 
 # ───────── 로컬 faster-whisper ─────────
@@ -266,7 +234,7 @@ class _Local:
 
 # ───────── 선택 ─────────
 
-_PROVIDERS = {"off": _Off(), "openai": _OpenAI(), "local": _Local()}
+_PROVIDERS = {"off": _Off(), "local": _Local()}
 
 
 def provider():

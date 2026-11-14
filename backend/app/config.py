@@ -44,7 +44,6 @@ class Settings:
     def __init__(self, env: Mapping[str, str] | None = None):
         env = os.environ if env is None else env
         self.practice_insights_enabled = env.get("PRACTICE_INSIGHTS_ENABLED", "false").lower() == "true"
-        self.practice_competency_evidence_enabled = env.get("PRACTICE_COMPETENCY_EVIDENCE_ENABLED", "false").lower() == "true"
         self.database_url: str = env.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'jobseeker.db'}"
         # true일 때만 개발 모드(로그인 없이 X-User-Id). 그 밖의 값은 인증을 켠 것으로 본다
         self.auth_disabled: bool = env.get("AUTH_DISABLED", "false").lower() == "true"
@@ -56,14 +55,9 @@ class Settings:
         self.storage_bucket: str = env.get("STORAGE_BUCKET", "recordings")
         # 로컬 녹음 폴더. e2e·테스트는 실행마다 임시 폴더를 넘겨 개발용 녹음을 건드리지 않는다
         self.local_recordings_dir: Path = Path(env.get("RECORDINGS_DIR") or BASE_DIR / "recordings")
-        self.openai_api_key: str = env.get("OPENAI_API_KEY", "")
-        self.openai_chat_model: str = env.get("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-        self.openai_stt_model: str = env.get("OPENAI_STT_MODEL", "whisper-1")
-        # 세션 디브리프 요약 전용 모델(비우면 채팅 모델). 답변 코칭·꼬리질문은 채팅 모델을 쓴다
-        self.openai_feedback_model: str = env.get("OPENAI_FEEDBACK_MODEL") or self.openai_chat_model
-        # 테스트·e2e에서 가짜 서버를 가리킬 수 있게 API 주소를 바꿀 수 있다
-        self.openai_base_url: str = (env.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        # 음성 전사 제공자: local(faster-whisper, 외부 전송 없음) | openai | off. LLM용 OpenAI 키와 따로 정한다
+        # 외부 AI 서비스는 쓰지 않는다. 예전 설정에 남은 키는 읽지 않고, 시작할 때 무시한다고 경고만 남긴다(check)
+        self._leftover_openai_key: bool = bool((env.get("OPENAI_API_KEY") or "").strip())
+        # 음성 전사 제공자: local(faster-whisper, 외부 전송 없음) | off
         self.stt_provider: str = (env.get("STT_PROVIDER") or "local").strip().lower()
         # 로컬 전사: 다국어 Whisper 크기(tiny·base·small·medium·large-v3 등)나 모델 폴더 경로
         self.local_stt_model: str = env.get("LOCAL_STT_MODEL") or "base"
@@ -101,6 +95,8 @@ class Settings:
         if self.auth_disabled and not self.database_url.startswith("sqlite"):
             log.warning("AUTH_DISABLED=true(개발 모드)로 Postgres에 연결합니다: X-User-Id 헤더를 그대로 믿어요. "
                         "배포 환경이라면 AUTH_DISABLED=false로 두세요")
+        if self._leftover_openai_key:
+            log.warning("OPENAI_API_KEY is ignored: this app uses no external AI service. Remove it from the environment")
 
 
 settings = Settings()

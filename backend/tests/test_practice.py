@@ -50,7 +50,7 @@ def test_mock_session_flow(client, consent):
     assert p.json()["self_rating"] == 4 and p.json()["transcript"] == "수동 입력"
 
     fb = client.post(f"/practice/answers/{ans['id']}/feedback", headers=U1)
-    assert fb.status_code == 503  # API 키 없음
+    assert fb.status_code == 404  # AI 피드백 경로는 없다(외부 서비스를 쓰지 않음)
 
     client.post(f"/practice/sessions/{s['id']}/finish", headers=U1)
     summary = client.get("/practice/sessions", headers=U1).json()
@@ -76,3 +76,19 @@ def test_generate_skips_duplicates(client):
     first = client.post("/practice/questions/generate", json=body, headers=h).json()
     again = client.post("/practice/questions/generate", json=body, headers=h).json()
     assert len(first) == 3 and again == []
+
+
+def test_generated_questions_are_the_rule_templates(client):
+    """맞춤 질문은 템플릿으로만 만든다(외부 서비스 없음). 자소서의 경험 문장을 인용한 질문이 먼저 온다."""
+    from app import llm
+    h = {"X-User-Id": "user-template"}
+    essay = "저는 동아리 회계 정리를 맡아 정산 시간을 절반으로 줄인 경험이 있습니다. 그 밖에 특별한 일은 없었습니다."
+    got = client.post("/practice/questions/generate", headers=h,
+                      json={"company": "회사", "position": "직무", "essay_text": essay, "count": 4})
+    assert got.status_code == 201, got.text
+    expected = llm.template_questions("회사", "직무", essay, 4)
+    assert [(q["category"], q["text"]) for q in got.json()] == [(e["category"], e["text"]) for e in expected]
+    assert len(expected) == 4 and "정산 시간을 절반으로" in expected[0]["text"]
+    assert {q["tagging_source"] for q in got.json()} == {"rule"}
+    # 회사·직무가 비어도 질문 문장이 깨지지 않는다
+    assert llm.template_questions("", "", "", 2)[0]["text"].startswith("저희 회사에 지원한 이유")

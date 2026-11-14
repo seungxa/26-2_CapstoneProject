@@ -42,7 +42,7 @@ def current_report(answer: PracticeAnswer) -> dict | None:
 
 
 def coach(answer: PracticeAnswer, db: Session) -> dict:
-    """Call the model without a session write lock, then verify all inputs under it."""
+    """Build the rule-based report without a session write lock, then verify all inputs under it."""
     if not answer.transcript or not answer.transcript.strip():
         raise NoTranscript
     aid, sid = answer.id, answer.session_id
@@ -50,12 +50,12 @@ def coach(answer: PracticeAnswer, db: Session) -> dict:
     context, history = deepcopy(answer.session.context_snapshot or {}), history_for(answer)
     classification = deepcopy(answer.question_classification)
     before = coaching.input_fingerprint(question, transcript, context, history)
-    # Release any prior read transaction before waiting on external work.
+    # Release any prior read transaction before building the report.
     db.commit()
-    # Keep the existing external data scope: only earlier answered turns go to the model.
-    # The saved identity additionally covers unanswered entries to detect insertions.
-    model_history = [entry for entry in history if entry["answer"]]
-    report = coaching.build_report(question, transcript, context, model_history, classification=classification)
+    # Only earlier answered turns are coaching input. The saved identity (before) also covers
+    # unanswered entries to detect insertions.
+    answered = [entry for entry in history if entry["answer"]]
+    report = coaching.build_report(question, transcript, context, answered, classification=classification)
     if not lock_session(db, sid):
         db.rollback()
         raise TranscriptChanged
@@ -64,11 +64,6 @@ def coach(answer: PracticeAnswer, db: Session) -> dict:
     if current is None or input_fingerprint(current) != before:
         db.rollback()
         raise TranscriptChanged
-    # Classification is optional and cannot invalidate current core coaching.
-    from ..taxonomy import current_evidence
-    if report.get("competency_evidence") is not None:
-        report = {**report, "competency_evidence": current_evidence(
-            report["competency_evidence"], current.transcript, current.question_classification)}
     saved = db.get(AnswerCoaching, aid, populate_existing=True)
     current.coaching = saved if saved is not None else AnswerCoaching()
     current.coaching.report = {**report, "input_sha256": before}
