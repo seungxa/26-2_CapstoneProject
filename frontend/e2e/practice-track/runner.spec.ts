@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-import { API } from "./env";
+import { API, BROWSER_API } from "./env";
 
 // The interview runner: answer, then move on. One question, a timer and one primary action, and the recording
 // consent card only the first time. The e2e backend runs with STT_PROVIDER=off, so transcription is off here.
@@ -67,6 +67,7 @@ test("the runner shows one question, a timer and one primary action, then the ne
   await expect(linked).toHaveAttribute("lang", "ko");
   expect((await box(linked)).y).toBeGreaterThan(Math.max(t.y, e.y));
   await expect(page.getByRole("heading", { name: "Practice Materials" })).toHaveCount(0);
+  await expect(page.getByTestId("runner-focus")).toHaveCount(0); // only re-drill sessions name a focus
 
   // The question (Korean content), the timer, then the one primary button
   const question = page.locator(".runner-q");
@@ -131,7 +132,7 @@ test("consent card appears once", async ({ page, request }) => {
     // Transcription is off on this server, so the card must not promise it
     await expect(consent.locator("li")).toHaveCount(3);
     await expect(consent).not.toContainText(/transcri/i);
-    await expect(consent).toContainText("deleted after 30 days");
+    await expect(consent).toContainText("deleted within 30 days");
     // Details opens a new tab and says so to screen readers
     const details = consent.getByRole("link", { name: "Details", exact: true });
     await expect(details).toHaveAttribute("target", "_blank");
@@ -183,4 +184,81 @@ test("transcription off shows an inline notice", async ({ page, request }) => {
   await page.getByRole("radio", { name: "Record", exact: true }).check();
   await expect(notice).toBeVisible();
   expect(await noHorizontalScroll(page)).toBe(true);
+});
+
+test("a re-drill session names what to work on for the current question", async ({ page, request }) => {
+  await request.put(`${API}/practice/settings`, { data: { consent: true } });
+  const { session, questions } = await seed(request, 2);
+  // A self-rating of 1–2 picks the answer for re-drill; the other answer is not picked
+  await request.patch(`${API}/practice/answers/${session.answers[0].id}`, { data: { transcript: "제가 맡은 일을 끝냈습니다.", self_rating: 2 } });
+  await request.patch(`${API}/practice/answers/${session.answers[1].id}`, { data: { transcript: "역할을 나눴습니다.", self_rating: 5 } });
+  await request.post(`${API}/practice/sessions/${session.id}/finish`);
+  const drill = await (await request.post(`${API}/practice/sessions/${session.id}/redrill`)).json();
+  const target = drill.context_snapshot.drill_targets[0];
+  expect(target.question_id).toBe(questions[0].id);
+  await page.goto(`/practice/sessions/${drill.id}/run`);
+  await expect(heading(page, "Question 1 of 1")).toBeVisible();
+  const focus = page.getByTestId("runner-focus");
+  await expect(focus).toHaveText(`Work on: ${target.next_action}`);
+  await expect(focus).toHaveClass(/muted/);
+  // Right under the header (no application here), above the question card
+  expect((await box(focus)).y).toBeGreaterThan((await box(heading(page, "Question 1 of 1"))).y);
+  expect((await box(focus)).y).toBeLessThan((await box(page.locator(".runner-q"))).y);
+  expect(await koreanOutsideKo(page)).toEqual([]);
+  expect(await noHorizontalScroll(page)).toBe(true);
+});
+
+const PROMISE = /transcribed on our server/;
+const health = (available: boolean) => ({ ok: true, auth_disabled: true,
+  stt: { provider: available ? "local" : "off", available, model: null, state: available ? "ready" : null, error: null } });
+
+test("consent never promises transcription until the server confirms it", async ({ page, request }) => {
+  await request.put(`${API}/practice/settings`, { data: { consent: false } });
+  const { session } = await seed(request, 1);
+  // Record whether the promise was ever on screen, even for one frame
+  await page.addInitScript((source) => {
+    const promise = new RegExp(source);
+    const w = window as unknown as { __promised: boolean };
+    w.__promised = false;
+    new MutationObserver(() => { if (promise.test(document.body?.innerText ?? "")) w.__promised = true; })
+      .observe(document, { subtree: true, childList: true, characterData: true });
+  }, PROMISE.source);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`${BROWSER_API}/health`, async (route) => { await held; await route.fulfill({ json: health(true) }); });
+  try {
+    await page.goto(`/practice/sessions/${session.id}/run`);
+    const consent = consentCard(page);
+    await expect(consent).toBeVisible();
+    await expect(consent.locator("li")).toHaveCount(3);
+    await expect(consent).toContainText("deleted within 30 days");
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as unknown as { __promised: boolean }).__promised)).toBe(false);
+    // Once the server confirms transcription, the card may say so
+    release();
+    await expect(consent).toContainText(PROMISE);
+    await expect(consent).toContainText("deleted after transcription unless you keep it");
+  } finally {
+    release();
+    await request.put(`${API}/practice/settings`, { data: { consent: false } });
+  }
+});
+
+test("consent stays neutral and usable when the server status can't be read", async ({ page, request }) => {
+  await request.put(`${API}/practice/settings`, { data: { consent: false } });
+  const { session } = await seed(request, 1);
+  await page.route(`${BROWSER_API}/health`, (route) => route.fulfill({ status: 503, json: { detail: "down" } }));
+  try {
+    await page.goto(`/practice/sessions/${session.id}/run`);
+    const consent = consentCard(page);
+    await expect(consent).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    await expect(consent).not.toContainText(/transcri/i);
+    await expect(consent).toContainText("deleted within 30 days");
+    await consent.getByRole("button", { name: "Agree & Start", exact: true }).click();
+    await expect(page.getByText("Recording", { exact: true })).toBeVisible();
+    expect((await (await request.get(`${API}/practice/settings`)).json()).consented_at).toBeTruthy();
+  } finally {
+    await request.put(`${API}/practice/settings`, { data: { consent: false } });
+  }
 });

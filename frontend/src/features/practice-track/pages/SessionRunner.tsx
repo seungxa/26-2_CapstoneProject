@@ -35,7 +35,8 @@ export default function SessionRunner() {
   const [prefs, setPrefs] = useState<PracticeSettings | null>(null);
   // 서버가 403(동의 없음)을 돌려준 동작. 동의하면 이어서 다시 한다
   const [consentFor, setConsentFor] = useState<"upload" | "transcribe" | null>(null);
-  // 전사 상태: 꺼져 있거나 고장이면 녹음 버튼 바로 아래에 한 줄로 알린다. 못 불러오면 아무것도 말하지 않는다
+  // 전사 상태: 꺼져 있거나 고장이면 녹음 버튼 바로 아래에 한 줄로 알린다. 못 불러오면 아무것도 말하지 않고,
+  // 동의 카드도 전사를 약속하지 않는다(확인된 경우에만 약속한다)
   const [stt, setStt] = useState<SttStatus | null>(null);
   // 답변 입력란과 그 이름. 이름은 for로 잇는다(입력란을 label로 감싸면 초기 값이 이름에 섞인다)
   const answerField = useId();
@@ -218,7 +219,7 @@ export default function SessionRunner() {
 
   const consentPanel = (notice: string | null, buttonLabel: string, then: () => void) => (
     <ConsentPanel retentionDays={prefs?.retention_days} initialKeepAudio={prefs?.keep_audio} notice={notice} buttonLabel={buttonLabel}
-      transcription={stt?.available ?? true}
+      transcription={stt?.available === true}
       onConsented={(st) => { setPrefs(st); setConsent("ok"); setConsentFor(null); setErr(null); then(); }} />
   );
 
@@ -256,6 +257,8 @@ export default function SessionRunner() {
   const notice = inputMode === "audio" && stt ? transcriptionNotice(stt) : null;
   const ctx = session.context_snapshot;
   const application = ctx?.company ? [ctx.company, ctx.position].filter(Boolean).join(" · ") : null;
+  // 다시 연습 세션: 이 질문을 고른 이유(지난번 다음 연습)를 한 줄로 보인다. 예전 기록은 한국어일 수 있다
+  const focus = ctx?.drill_targets?.find((t) => t.question_id === answer.question.id)?.next_action?.trim() || null;
   // 시작 시점 분류(Tags)가 이미 Follow-up을 보이면 칩을 하나 더 달지 않는다
   const followupChip = !!answer.parent_answer_id && answer.question_classification?.question_role !== "followup";
   const phaseLine = [inputMode === "audio" && "Recording", mock && "Time left"].filter(Boolean).join(" · ");
@@ -268,6 +271,7 @@ export default function SessionRunner() {
       <Link className="btn" aria-disabled={busy} onClick={event => { if (busy || processing.current) event.preventDefault(); }} to={`/practice/sessions/${id}`}>End Practice</Link>
     </header>
     {application && <p className="runner-app small muted" data-testid="runner-application" lang="ko">{application}</p>}
+    {focus && <p className="runner-focus small muted" data-testid="runner-focus">Work on: <span lang={/[가-힣]/.test(focus) ? "ko" : undefined}>{focus}</span></p>}
     <section className="card runner-card">
       <div className="row small">
         <span className="chip">{label("category", answer.question.category)}</span>

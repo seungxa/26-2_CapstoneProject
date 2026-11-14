@@ -37,6 +37,7 @@ test("submitted source → text answer → follow-up → evidence review → foc
   // The runner names the linked application in one line. The frozen essay basis is checked through the session
   await expect(page.getByTestId("runner-application")).toHaveText("검증용 소프트웨어 · 백엔드 개발자");
   await expect(page.getByRole("heading", { name: "Practice Materials" })).toHaveCount(0);
+  await expect(page.getByTestId("runner-focus")).toHaveCount(0);
   const started = await (await request.get(`${API}/practice/sessions/${page.url().split("/").at(-2)}`)).json();
   expect(started.context_snapshot.essays[0].content).toContain("40%");
   expect(started.context_snapshot.essays[0].content).not.toContain("70%");
@@ -80,6 +81,8 @@ test("submitted source → text answer → follow-up → evidence review → foc
   expect(drill.title).toMatch(/^보완 연습/);
   expect(drill.context_snapshot.origin_session_id).toBe(sessionId);
   expect(drill.context_snapshot.drill_targets.length).toBeGreaterThan(0);
+  // The runner names the focus for this question, in one line
+  await expect(page.getByTestId("runner-focus")).toHaveText(`Work on: ${drill.context_snapshot.drill_targets[0].next_action}`);
   await expect(page.getByRole("radio", { name: "Type", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -8,7 +8,8 @@ const SETTINGS_PATH = "/practice/settings";
 /** Recording consent asked once, right before the first recording. Three lines; the rest is on Settings.
  *  The keep-audio box starts from the current setting (initialKeepAudio) and is sent only when the user changes it,
  *  so agreeing again never resets the setting.
- *  transcription=false (the server can't transcribe): the lines say what really happens, so they never promise a transcript. */
+ *  transcription=false (the server can't transcribe, or that isn't confirmed yet): neutral lines that hold either way,
+ *  so the card never promises a transcript it can't give. */
 export default function ConsentPanel({
   retentionDays = 30,
   initialKeepAudio = false,
@@ -59,7 +60,7 @@ export default function ConsentPanel({
           <li>The audio is deleted after transcription unless you keep it.</li>
         </> : <>
           <li>It's saved on our server, not sent to other services.</li>
-          <li>The audio is deleted after {retentionDays} days.</li>
+          <li>The audio is deleted within {retentionDays} days.</li>
         </>}
       </ul>
       <label className="check-label">
