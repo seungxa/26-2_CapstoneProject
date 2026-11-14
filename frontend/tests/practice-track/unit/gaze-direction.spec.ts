@@ -5,6 +5,9 @@ import {
 } from "../../../src/features/practice-track/video/gaze/direction";
 import { gazeFeatures, type GazeFeatures } from "../../../src/features/practice-track/video/gaze/features";
 import { POSE_GEOMETRY, VIEW, screenToGaze, syntheticFace } from "../../../src/features/practice-track/video/gaze/synthetic";
+import {
+  directionAggregate, directionTrials, evaluateDirectionRun, runsVerdict, type Trial, type TrialData,
+} from "../../../src/features/practice-track/video/gaze/directionLab";
 
 // 시선 방향(C1) 계산 테스트. 합성 얼굴의 숨긴 기하로 화면 점을 보는 특징을 만든다(실제 웹캠 정확도는 실험실에서 사람이 잰다).
 
@@ -86,4 +89,68 @@ test("a target with fewer than 8 valid samples fails with insufficient_samples",
 test("smoothing keeps a sustained change", () => {
   const seq = Array.from({ length: 8 }, (_, i) => ({ t: i * 250, label: { label: i < 4 ? "center" : "down" } as DirectionLabel }));
   expect(smoothLabels(seq).slice(-3).map((l) => l.label)).toEqual(["down", "down", "down"]);
+});
+
+test.describe("direction lab", () => {
+  /** 시행마다 라벨 6개. 라벨 하나마다 pick(trial)을 새로 부른다(기본은 기대한 방향만 내는 완벽한 사용자) */
+  const labelsFor = (trials: Trial[], pick: (t: Trial) => DirectionLabel = (t) => ({ label: t.expected })): TrialData[] =>
+    trials.map((trial) => ({ trial, labels: Array.from({ length: 6 }, () => pick(trial)) }));
+
+  test("trials: 15 eyes + 15 natural + one script trial last; seed changes order only", () => {
+    const a = directionTrials(1), b = directionTrials(2);
+    expect(a).toHaveLength(31);
+    for (const c of ["eyes", "natural"] as const) for (const d of DIRECTIONS)
+      expect(a.filter((t) => t.condition === c && t.expected === d)).toHaveLength(3);
+    expect(a[30]).toMatchObject({ condition: "script", expected: "down", pose: "down", collectMs: 5000 });
+    expect(a.filter((t) => t.condition === "eyes").every((t) => t.pose === "forward")).toBe(true);
+    expect(a.map((t) => t.id)).not.toEqual(b.map((t) => t.id));
+    expect([...a].sort((x, y) => x.id.localeCompare(y.id))).toEqual([...b].sort((x, y) => x.id.localeCompare(y.id)));
+  });
+
+  test("a perfect user passes", () => {
+    const r = evaluateDirectionRun(labelsFor(directionTrials(1)));
+    expect(r.verdict).toBe("pass");
+    expect(r.failed).toEqual([]);
+    expect(r.accuracy.down).toBe(1);
+  });
+
+  test("looking at the center during down trials fails on down", () => {
+    const r = evaluateDirectionRun(labelsFor(directionTrials(1), (t) => ({ label: t.expected === "down" ? "center" : t.expected })));
+    expect(r.accuracy.down).toBe(0);
+    expect(r.verdict).toBe("fail");
+    expect(r.failed).toContain("down");
+  });
+
+  test("unknown labels count against accuracy and fail the run above 15%", () => {
+    let n = 0;
+    const r = evaluateDirectionRun(labelsFor(directionTrials(1),
+      (t) => (n++ % 5 === 0 ? { label: "unknown", reason: "eyes_unreliable" } : { label: t.expected })));
+    expect(r.unknownRate).toBeCloseTo(0.2, 1);
+    expect(r.accuracy.center!).toBeLessThan(0.85);
+    expect(r.failed).toContain("unknown");
+    expect(r.unknownReasons.eyes_unreliable).toBeGreaterThan(0);
+  });
+
+  test("center looks labeled down are reported as centerAsDown", () => {
+    const r = evaluateDirectionRun(labelsFor(directionTrials(1), (t) => ({ label: t.expected === "center" ? "down" : t.expected })));
+    expect(r.centerAsDown).toBe(1);
+    expect(r.failed).toEqual(expect.arrayContaining(["center", "centerAsDown"]));
+  });
+
+  test("aggregate has only numbers and strings and no feature names", () => {
+    const out = directionAggregate(evaluateDirectionRun(labelsFor(directionTrials(1))));
+    for (const [k, v] of Object.entries(out)) {
+      expect(["number", "string"].includes(typeof v) || v === null).toBe(true);
+      expect(k).not.toMatch(/\b(ex|ey|hx|hy|points|landmark)\b/);
+    }
+    expect(out["verdict"]).toBe("pass");
+    expect(out["acc.down"]).toBe(1);
+  });
+
+  test("runsVerdict needs two passes out of three", () => {
+    expect(runsVerdict(["pass"])).toBe("pending");
+    expect(runsVerdict(["pass", "fail", "pass"])).toBe("pass");
+    expect(runsVerdict(["fail", "pass", "fail"])).toBe("fail");
+    expect(runsVerdict(["pass", "pass"])).toBe("pass");
+  });
 });
