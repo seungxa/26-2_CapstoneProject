@@ -82,6 +82,7 @@ def test_download_failure_falls_back(fake_followup):
 
 
 def test_slow_generation_times_out_to_template(fake_followup, monkeypatch):
+    monkeypatch.setattr(followup_model, "MIN_GENERATION_SEC", 0.0)  # let a 0.2 s limit still reach the model
     monkeypatch.setattr(settings, "followup_timeout_sec", 0.2)
     fake_followup.delay = 1.0
     started = time.monotonic()
@@ -146,6 +147,7 @@ def test_waiting_for_a_busy_model_counts_toward_the_limit(fake_followup, monkeyp
 
 def test_concurrent_requests_run_one_at_a_time(fake_followup, monkeypatch):
     monkeypatch.setattr(settings, "followup_timeout_sec", 5.0)
+    followup_model.preload()  # loaded already: this case is about generations, not requests during loading
     fake_followup.delay = 0.3
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(lambda _: ask(), range(2)))
@@ -154,6 +156,86 @@ def test_concurrent_requests_run_one_at_a_time(fake_followup, monkeypatch):
     assert one["end"] <= two["start"]
     assert fake_followup.loads == 1
 
+
+
+# ───────── work nobody waits for (fix round 1) ─────────
+
+def test_a_load_that_ends_after_the_limit_does_not_generate(fake_followup, monkeypatch):
+    monkeypatch.setattr(followup_model, "MIN_GENERATION_SEC", 0.0)  # the request starts the load despite a 0.2 s limit
+    monkeypatch.setattr(settings, "followup_timeout_sec", 0.2)
+    fake_followup.load_gate = threading.Event()  # a slow first load or download
+    started = time.monotonic()
+    try:
+        r = ask()
+        assert (r.text, r.fallback_reason) == (None, "timeout")
+        assert time.monotonic() - started < 0.5
+    finally:
+        fake_followup.load_gate.set()
+    wait_until(lambda: followup_model.status()["state"] == "ready")
+    monkeypatch.setattr(settings, "followup_timeout_sec", 5.0)
+    assert ask().text == GOOD
+    assert len(fake_followup.calls) == 1  # only the request still waiting generated; the given-up one did not
+
+
+def test_a_request_left_with_too_little_time_does_not_generate(fake_followup, monkeypatch):
+    followup_model.preload()
+    monkeypatch.setattr(followup_model, "MIN_GENERATION_SEC", 0.5)
+    monkeypatch.setattr(settings, "followup_timeout_sec", 5.0)
+    fake_followup.delay = 1.0
+    running = threading.Thread(target=ask)
+    running.start()
+    wait_until(lambda: fake_followup.calls)
+    monkeypatch.setattr(settings, "followup_timeout_sec", 1.2)
+    r = ask()  # gets the model when the first generation ends, with about 0.2 s left
+    assert (r.text, r.fallback_reason) == (None, "timeout")
+    running.join(5)
+    time.sleep(0.1)
+    assert len(fake_followup.calls) == 1  # no generation was started for the request that had to give up
+
+
+@pytest.mark.parametrize("starter", ["request", "preload"])
+def test_requests_during_loading_get_unavailable_at_once(client, fake_followup, monkeypatch, starter):
+    monkeypatch.setattr(settings, "followup_timeout_sec", 3.0)
+    fake_followup.load_gate = threading.Event()
+    first: list = []
+    loading = threading.Thread(target=lambda: first.append(ask() if starter == "request" else followup_model.preload()))
+    loading.start()
+    try:
+        wait_until(lambda: followup_model.status()["state"] == "loading")
+        assert client.get("/health").json()["followup"]["state"] == "loading"
+        started = time.monotonic()
+        r = ask()
+        assert (r.text, r.fallback_reason) == (None, "unavailable")
+        assert time.monotonic() - started < 0.5
+    finally:
+        fake_followup.load_gate.set()
+        loading.join(5)
+    if starter == "request":
+        assert first[0].text == GOOD  # the request that started the load waited within its limit and got the reply
+    assert ask().text == GOOD
+    assert fake_followup.loads == 1
+
+
+def test_a_failed_load_is_tried_again_after_the_cooldown(fake_followup, monkeypatch):
+    monkeypatch.setattr(followup_model, "LOAD_RETRY_SEC", 1.0)
+    fake_followup.load_error = OSError("Network is unreachable")
+    assert ask().fallback_reason == "unavailable"
+    assert ask().fallback_reason == "unavailable"
+    assert fake_followup.loads == 1  # within the cooldown: no new download attempt
+    time.sleep(1.2)
+    fake_followup.load_error = None  # the network is back
+    assert ask().text == GOOD
+    assert fake_followup.loads == 2
+    st = followup_model.status()
+    assert (st["state"], st["available"], st["error"]) == ("ready", True, None)
+
+
+def test_a_missing_library_is_not_tried_again(fake_followup, monkeypatch):
+    monkeypatch.setattr(followup_model, "LOAD_RETRY_SEC", 0.0)
+    fake_followup.load_error = ImportError("No module named 'llama_cpp'")
+    assert ask().fallback_reason == ask().fallback_reason == "unavailable"
+    assert fake_followup.loads == 1
+    assert "restart the server" in followup_model.status()["error"]
 
 def test_preload_loads_once_for_later_requests(fake_followup):
     followup_model.preload()

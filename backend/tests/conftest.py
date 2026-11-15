@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import time
 
 _tmp = tempfile.mkdtemp()
@@ -82,6 +83,7 @@ class FakeFollowup:
 
     reply: 모델이 낼 원문, 또는 생성할 때 던질 예외. delay: 생성 한 번에 걸리는 시간(초).
     load_error: 불러올 때 던질 예외(ImportError는 라이브러리 없음, OSError는 내려받기 실패 등).
+    load_gate: 정해 두면 로더가 이 Event가 열릴 때까지 멈춘다(긴 로딩·첫 내려받기 흉내, 최대 10초).
     calls: 생성 호출마다 {"messages", "max_tokens", "temperature", "start", "end"}(time.monotonic 시각). loads: 로더 호출 수.
     """
 
@@ -89,11 +91,14 @@ class FakeFollowup:
         self.reply: str | Exception = "그때 본인이 맡은 역할은 무엇이었나요?"
         self.delay: float = 0.0
         self.load_error: Exception | None = None
+        self.load_gate: threading.Event | None = None
         self.calls: list = []
         self.loads = 0
 
     def load(self, settings):
         self.loads += 1
+        if self.load_gate is not None and not self.load_gate.wait(10):
+            raise AssertionError("load_gate was never opened")
         if self.load_error is not None:
             raise self.load_error
         return self

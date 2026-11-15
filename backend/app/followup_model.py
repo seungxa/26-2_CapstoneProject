@@ -6,9 +6,13 @@ local : a small Korean GGUF model run by llama.cpp (llama-cpp-python) on this se
 off   : never loads anything. Callers use their template question.
 
 generate() never raises and never takes longer than FOLLOWUP_TIMEOUT_SEC: waiting for a running generation and
-generating share that limit. One generation runs at a time. A generation that passes the limit keeps running in
-its worker thread (llama.cpp cannot be interrupted) and frees the model when it ends; its reply is dropped.
-A failed load is remembered until the server restarts, so requests do not retry a download each time.
+generating share that limit. One generation runs at a time. No work is done for a request that has given up:
+a generation is not started with less than MIN_GENERATION_SEC left, also when a slow load ends late. A generation
+that passes the limit anyway keeps running (llama.cpp cannot be interrupted); its reply is dropped.
+While the model is loading (first download, preload, a retry), only the request that started the load waits for
+it; the others get "unavailable" at once instead of holding a server thread for the whole limit.
+A failed load is tried again only after LOAD_RETRY_SEC, so requests do not retry a download each time but the
+model recovers by itself (e.g. the network was not up at boot). A missing library is not retried.
 
 llama_cpp and huggingface_hub are imported only inside the loader: the app and tests run without them
 (backend/requirements-followup.txt installs them).
@@ -28,9 +32,14 @@ log = logging.getLogger(__name__)
 N_CTX = 1024
 MAX_TOKENS = 96
 TEMPERATURE = 0.3
+# Do not start a generation with less time left than this: it could not finish and would only hold the model
+MIN_GENERATION_SEC = 1.0
+# After a failed load (download, cache, model file), the next try waits this long (seconds)
+LOAD_RETRY_SEC = 600.0
+_POLL_SEC = 0.05  # how often a request waiting for the model checks whether a load has started
 
 _NOT_INSTALLED = ("The local follow-up model is not installed. "
-                  "Install backend/requirements-followup.txt to use it.")
+                  "Install backend/requirements-followup.txt, then restart the server.")
 
 
 @dataclass
@@ -72,15 +81,16 @@ def _describe(e: Exception) -> str:
     if isinstance(e, OSError):
         if not settings.followup_allow_download:
             return ("The follow-up model is not in the local cache and downloading is turned off. "
-                    "Download it once, then restart the server.")
-        return ("The follow-up model could not be downloaded. Check the network connection, "
-                "then restart the server to try again.")
-    return ("The follow-up model could not be loaded. Check FOLLOWUP_MODEL_REPO and FOLLOWUP_MODEL_FILE, "
-            "then restart the server.")
+                    "The server checks the cache again in a few minutes.")
+        return ("The follow-up model could not be downloaded. Check the network connection; "
+                "the server tries again in a few minutes.")
+    return ("The follow-up model could not be loaded. Check FOLLOWUP_MODEL_REPO and FOLLOWUP_MODEL_FILE; "
+            "the server tries again in a few minutes.")
 
 
 class _Unavailable(Exception):
-    """The model failed to load (now or earlier). The public reason is in the runner's error."""
+    """The model cannot be used now: it failed to load (and the retry wait is not over), or another thread is
+    loading it. The public reason of a failure is in the runner's error."""
 
 
 class _Runner:
@@ -90,6 +100,8 @@ class _Runner:
         self.model = None
         self.state = "idle"  # idle | loading | ready | error
         self.error: str | None = None
+        self._failed_at = 0.0  # time.monotonic() of the last failed load
+        self._retry = True  # False after ImportError: installing the library needs a restart anyway
         self._installed = installed
         self._load_lock = threading.Lock()
         # Two generations on a laptop CPU slow each other down: run one, let the next wait within its time limit
@@ -100,16 +112,22 @@ class _Runner:
             self._installed = "llama_cpp" in sys.modules or importlib.util.find_spec("llama_cpp") is not None
         return self._installed
 
-    def load(self):
-        """The model, loaded once even when requests arrive together. Raises _Unavailable after a failed load."""
+    def load(self, wait: bool = True):
+        """The model, loaded once even when requests arrive together. Raises _Unavailable after a failed load
+        until LOAD_RETRY_SEC has passed. With wait=False (requests) it also raises when another thread is loading,
+        instead of waiting for a load that can take minutes."""
         if self.model is not None:
             return self.model
-        with self._load_lock:
+        if not self._load_lock.acquire(blocking=wait):
+            raise _Unavailable("loading")
+        try:
             if self.model is not None:
                 return self.model
-            if self.state == "error":
+            if self.state == "error" and not (self._retry and time.monotonic() - self._failed_at >= LOAD_RETRY_SEC):
                 raise _Unavailable(self.error)
-            self.state = "loading"
+            if self.state == "error":
+                log.info("follow-up model: trying to load again after a failure")
+            self.state = "loading"  # the last error stays visible until this try ends
             started = time.monotonic()
             try:
                 model = _loader(settings)
@@ -117,11 +135,14 @@ class _Runner:
                 log.warning("follow-up model: cannot load %s/%s: %r",
                             settings.followup_model_repo, settings.followup_model_file, e)
                 self.state, self.error = "error", _describe(e)
+                self._failed_at, self._retry = time.monotonic(), not isinstance(e, ImportError)
                 raise _Unavailable(self.error) from e
             self.model, self.state, self.error = model, "ready", None
             log.info("follow-up model: loaded %s/%s (%d threads) in %.1fs", settings.followup_model_repo,
                      settings.followup_model_file, settings.followup_threads, time.monotonic() - started)
             return model
+        finally:
+            self._load_lock.release()
 
 
 _runner = _Runner()
@@ -129,6 +150,18 @@ _runner = _Runner()
 
 def _local() -> bool:
     return settings.followup_model == "local"
+
+
+def _take_slot(runner: _Runner, deadline: float) -> str | None:
+    """Wait for the model until the deadline: None once this request holds it, else the fallback reason.
+    A load in progress ends the wait at once ("unavailable"): the request that started it is the one that waits."""
+    while runner.state != "loading":
+        remaining = deadline - time.monotonic()
+        if runner.slot.acquire(timeout=max(0.0, min(remaining, _POLL_SEC))):
+            return None
+        if remaining <= _POLL_SEC:
+            return "timeout"
+    return "unavailable"
 
 
 def status() -> dict:
@@ -155,17 +188,32 @@ def generate(question: str, transcript: str, focus: str) -> FollowupResult:
     runner = _runner  # this request keeps the runner it started with
     limit = settings.followup_timeout_sec
     deadline = started + limit
-    if not runner.slot.acquire(timeout=max(0.0, deadline - time.monotonic())):
+    waited = _take_slot(runner, deadline)
+    if waited == "unavailable":
+        log.info("follow-up model: still loading, using the template")
+        return result(None, waited)
+    if waited == "timeout":
         log.info("follow-up model: still busy after %.0fs, using the template", limit)
+        return result(None, waited)
+    if deadline - time.monotonic() < MIN_GENERATION_SEC:
+        runner.slot.release()
+        log.info("follow-up model: too little time left after waiting, using the template")
         return result(None, "timeout")
     out: dict = {}
 
-    def work():  # owns the slot from here and frees it when the generation ends, even after the limit
+    def work():  # owns the slot from here and frees it when it ends, even after the limit
         try:
-            model = runner.load()
+            model = runner.load(wait=False)
+            if deadline - time.monotonic() < MIN_GENERATION_SEC:  # the load ended (too) late: nobody waits now
+                log.info("follow-up model: loaded after the request's limit, not generating")
+                out["result"] = (None, "timeout")
+                return
             reply = model.create_chat_completion(messages=build_messages(question, transcript, focus),
                                                  max_tokens=MAX_TOKENS, temperature=TEMPERATURE)
             out["result"] = validate_followup(reply["choices"][0]["message"]["content"], question, transcript)
+            if time.monotonic() > deadline:
+                log.info("follow-up model: a generation ended %.1fs after its limit; its reply was dropped",
+                         time.monotonic() - deadline)
         except _Unavailable:
             out["result"] = (None, "unavailable")
         except Exception as e:
@@ -173,9 +221,6 @@ def generate(question: str, transcript: str, focus: str) -> FollowupResult:
             out["result"] = (None, "error")
         finally:
             runner.slot.release()
-            if time.monotonic() > deadline:
-                log.info("follow-up model: a generation ended %.1fs after its limit; its reply was dropped",
-                         time.monotonic() - deadline)
 
     worker = threading.Thread(target=work, name="followup-generate", daemon=True)
     try:
