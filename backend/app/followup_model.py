@@ -29,9 +29,12 @@ from .followup_text import build_messages, validate_followup
 
 log = logging.getLogger(__name__)
 
-N_CTX = 1024
+# 1536, not 1024: a 1,200-character answer full of numbers measured 1,084-1,169 prompt tokens with EXAONE
+# (each digit is a token); see docs/practice-track/followup-model-check.md
+N_CTX = 1536
 MAX_TOKENS = 96
-TEMPERATURE = 0.3
+# The EXAONE 4.0 model card suggests 0.1 for Korean conversation with the 1.2B model (less code switching)
+TEMPERATURE = 0.1
 # Do not start a generation with less time left than this: it could not finish and would only hold the model
 MIN_GENERATION_SEC = 1.0
 # After a failed load (download, cache, model file), the next try waits this long (seconds)

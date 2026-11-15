@@ -21,6 +21,10 @@ _SYSTEM = (
 
 _ENDING = re.compile(r"(주세요|주시겠어요|나요|까요|습니까)[.?]?$")
 _PREFIX = re.compile(r"^\s*(꼬리\s*질문|추가\s*질문|질문)\s*[:：]\s*")
+# A list marker ("- ", "* ", "• ", "1. ", "2) ", "(1) "); the space after it keeps "-5도" and "3.5초" intact
+_MARKER = re.compile(r"^\s*(?:[-*•·–]|\d{1,2}[.)]|\(\d{1,2}\))\s+")
+# One short label such as "답습: " (up to 6 characters, a space after the colon keeps "10:30" intact)
+_LABEL = re.compile(r"^[^\s:：]{1,6}[:：]\s+")
 _QUOTES = "\"'“”‘’`「」『』"
 
 
@@ -34,10 +38,10 @@ def _clean(raw: str) -> str:
     lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
     if not lines:
         return ""
-    text = lines[0]
+    text = _MARKER.sub("", lines[0], count=1)
     for _ in range(2):
         text = _PREFIX.sub("", text).strip().strip(_QUOTES).strip()
-    return text
+    return _LABEL.sub("", text, count=1).strip().strip(_QUOTES).strip()
 
 
 def validate_followup(raw: str, question: str, transcript: str) -> tuple[str | None, str | None]:

@@ -125,10 +125,14 @@ def _environment(threads: int, temperature: float) -> list[str]:
         sha += " (작업 중 변경 있음)" if dirty else ""
     except (OSError, subprocess.CalledProcessError):
         sha = "?"
-    import llama_cpp
+    try:  # 없으면 아래 불러오기가 실패 줄로 남긴다
+        import llama_cpp
+        llama_version = llama_cpp.__version__
+    except ImportError:
+        llama_version = "설치 안 됨"
     return [f"- CPU: {cpu}, 논리 코어 {os.cpu_count()}개 중 {threads}스레드 사용",
             f"- RAM: 전체 {int(mem) / 1048576:.1f} GB, 시작 때 사용 가능 {int(avail) / 1048576:.1f} GB",
-            f"- OS: {platform.platform()}, Python {platform.python_version()}, llama-cpp-python {llama_cpp.__version__}",
+            f"- OS: {platform.platform()}, Python {platform.python_version()}, llama-cpp-python {llama_version}",
             f"- Git: {sha}",
             f"- 생성 조건: n_ctx {N_CTX}, max_tokens {MAX_TOKENS}, temperature {temperature}, "
             f"전사문 앞 {MAX_TRANSCRIPT_CHARS}자, 초점 {FOCUS}"]

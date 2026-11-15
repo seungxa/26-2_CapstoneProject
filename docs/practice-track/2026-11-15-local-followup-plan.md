@@ -56,7 +56,7 @@
 | `FOLLOWUP_PRELOAD` | `false` | 서버 시작 때 미리 불러오기. 배포에서는 `true` |
 
 **생성 조건**
-- `n_ctx` 1024, `max_tokens` 96, `temperature` 0.3.
+- `n_ctx` 1536, `max_tokens` 96, `temperature` 0.1. (처음 계획은 1024와 0.3이었다. Task 3 시험 뒤 바꿨다: 숫자가 많은 1,200자 답변이 1,084~1,169토큰이었고, EXAONE 모델 카드가 한국어 대화에 0.1을 권한다. `followup-model-check.md` 참고)
 - 입력 전사문은 앞 1,200자까지만 넣는다.
 
 **검증 규칙** (`followup_text.validate_followup`)
@@ -218,9 +218,9 @@ def _loader()                  # 테스트가 바꿔 끼우는 지점: (settings
   - 로딩: 잠금으로 보호한 지연 로딩이다.
   - 직렬화: `threading.Semaphore(1)`을 쓴다. 남은 시간 동안만 acquire를 기다리고, 시간 안에 못 얻으면 `"timeout"`.
   - 생성: 작업 스레드에서 실행하고 `join(timeout=남은 시간)`으로 기다린다. 시간이 넘으면 `"timeout"`을 돌려준다. 스레드는 끝까지 돌고 마지막에 세마포어를 놓는다.
-  - 기본 로더(`_loader`): `llama_cpp.Llama.from_pretrained(repo_id, filename, cache_dir=FOLLOWUP_MODEL_DIR or None, n_ctx=1024, n_threads=FOLLOWUP_THREADS, verbose=False)`.
+  - 기본 로더(`_loader`): `llama_cpp.Llama.from_pretrained(repo_id, filename, cache_dir=FOLLOWUP_MODEL_DIR or None, n_ctx=1536, n_threads=FOLLOWUP_THREADS, verbose=False)`. (n_ctx는 Task 3에서 1024→1536)
     - `FOLLOWUP_ALLOW_DOWNLOAD=false`면 HF 오프라인 모드(`HF_HUB_OFFLINE=1`)로 캐시만 쓴다.
-  - 생성 호출: `create_chat_completion(messages, max_tokens=96, temperature=0.3)`의 `choices[0]["message"]["content"]`를 `validate_followup`에 넣는다.
+  - 생성 호출: `create_chat_completion(messages, max_tokens=96, temperature=0.1)`(Task 3에서 0.3→0.1)의 `choices[0]["message"]["content"]`를 `validate_followup`에 넣는다.
   - `requirements-followup.txt`: 첫 줄에 `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`, 그다음 `llama-cpp-python>=0.3`, `huggingface-hub>=0.24`.
   - `.env.example`: `FOLLOWUP_*` 설정을 각 한 줄 설명과 함께 넣는다.
 - [ ] **Step 4: 통과 확인.** 위 명령과 전체 `pytest -q`. Expected: 전체 PASS(`test_no_external_calls` 포함).

@@ -52,7 +52,7 @@ def test_valid_reply_is_returned(fake_followup):
     assert r == followup_model.FollowupResult(GOOD, None, r.elapsed_ms)
     [call] = fake_followup.calls
     assert call["messages"] == build_messages(Q, A, "specificity")
-    assert (call["max_tokens"], call["temperature"]) == (96, 0.3)
+    assert (call["max_tokens"], call["temperature"]) == (96, 0.1)
 
 
 def test_invalid_reply_reports_reason(fake_followup):
@@ -300,7 +300,7 @@ def test_default_loader_uses_the_cache_without_downloading(libs):
     followup_model._loader(settings)
     assert libs.downloads == [{"repo_id": settings.followup_model_repo, "filename": settings.followup_model_file,
                                "cache_dir": None, "local_files_only": True}]
-    assert libs.models == [{"model_path": f"/cache/{settings.followup_model_file}", "n_ctx": 1024,
+    assert libs.models == [{"model_path": f"/cache/{settings.followup_model_file}", "n_ctx": 1536,
                             "n_threads": 2, "n_threads_batch": 2, "verbose": False}]
 
 
