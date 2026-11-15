@@ -10,5 +10,5 @@ export default defineConfig({testDir:'./e2e/practice-track-auth',outputDir:'./te
  projects:[{name:'desktop',use:{...devices['Desktop Chrome']}},{name:'mobile',use:{viewport:{width:390,height:844}}}],
  webServer:[authServer,
   {command:'../backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8021',cwd:'../backend',url:'http://127.0.0.1:8021/health',reuseExistingServer:false,
-   env:{APP_ENV:'test',AUTH_DISABLED:'false',SUPABASE_URL:authUrl,SUPABASE_JWT_MODE:'hs256',SUPABASE_JWT_SECRET:jwtSecret,SUPABASE_SERVICE_ROLE_KEY:'',STT_PROVIDER:'off',PRACTICE_INSIGHTS_ENABLED:'true',DATABASE_URL:`sqlite:///${join(data,'test.db')}`,RECORDINGS_DIR:recordings,CORS_ORIGINS:'http://localhost:5189,http://127.0.0.1:5189'}},
+   env:{APP_ENV:'test',AUTH_DISABLED:'false',SUPABASE_URL:authUrl,SUPABASE_JWT_MODE:'hs256',SUPABASE_JWT_SECRET:jwtSecret,SUPABASE_SERVICE_ROLE_KEY:'',STT_PROVIDER:'off',FOLLOWUP_MODEL:'off',PRACTICE_INSIGHTS_ENABLED:'true',DATABASE_URL:`sqlite:///${join(data,'test.db')}`,RECORDINGS_DIR:recordings,CORS_ORIGINS:'http://localhost:5189,http://127.0.0.1:5189'}},
   {command:'npm run dev -- --host 127.0.0.1 --port 5189 --strictPort',url:'http://localhost:5189',reuseExistingServer:false,env:{...frontendAuthEnv,VITE_API_URL:'http://localhost:8021',VITE_E2E_FAKE_FACE:'true'}}]});

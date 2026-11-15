@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 
 _tmp = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
@@ -12,6 +13,8 @@ os.environ["PURGE_INTERVAL_MIN"] = "60"
 # 자동 전사는 기본으로 끈다. 전사가 필요한 테스트는 fake_stt(가짜 로컬 제공자)를, 로컬 faster-whisper 자체는
 # test_local_stt.py가 가짜 모델을 끼워 검사한다
 os.environ["STT_PROVIDER"] = "off"
+# 꼬리질문 모델도 끈다: 테스트는 실제 모델을 불러오거나 내려받지 않는다. 생성 경로가 필요한 테스트는 fake_followup을 쓴다
+os.environ["FOLLOWUP_MODEL"] = "off"
 
 os.environ["PRACTICE_INSIGHTS_ENABLED"] = "true"
 
@@ -71,6 +74,52 @@ def fake_stt(monkeypatch) -> FakeStt:
     fake = FakeStt()
     monkeypatch.setitem(stt._PROVIDERS, "local", fake)
     monkeypatch.setattr(settings, "stt_provider", "local")
+    return fake
+
+
+class FakeFollowup:
+    """가짜 꼬리질문 모델(followup_model._loader 자리에 끼운다). llama.cpp 없이 로딩·직렬화·시간 상한·검증 경로를 그대로 돈다.
+
+    reply: 모델이 낼 원문, 또는 생성할 때 던질 예외. delay: 생성 한 번에 걸리는 시간(초).
+    load_error: 불러올 때 던질 예외(ImportError는 라이브러리 없음, OSError는 내려받기 실패 등).
+    calls: 생성 호출마다 {"messages", "max_tokens", "temperature", "start", "end"}(time.monotonic 시각). loads: 로더 호출 수.
+    """
+
+    def __init__(self):
+        self.reply: str | Exception = "그때 본인이 맡은 역할은 무엇이었나요?"
+        self.delay: float = 0.0
+        self.load_error: Exception | None = None
+        self.calls: list = []
+        self.loads = 0
+
+    def load(self, settings):
+        self.loads += 1
+        if self.load_error is not None:
+            raise self.load_error
+        return self
+
+    def create_chat_completion(self, messages, max_tokens, temperature) -> dict:
+        call = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature,
+                "start": time.monotonic(), "end": None}
+        self.calls.append(call)
+        time.sleep(self.delay)
+        call["end"] = time.monotonic()
+        if isinstance(self.reply, BaseException):
+            raise self.reply
+        return {"choices": [{"message": {"role": "assistant", "content": self.reply}}]}
+
+
+@pytest.fixture
+def fake_followup(monkeypatch) -> FakeFollowup:
+    """꼬리질문 모델을 켜고(FOLLOWUP_MODEL=local) 로더를 FakeFollowup으로 바꿔 끼운다. 불러온 모델·실패 기억·대기열은
+    테스트마다 새로 시작한다. 다시 끄려면 monkeypatch.setattr(settings, "followup_model", "off")."""
+    from app import followup_model
+    from app.config import settings
+
+    fake = FakeFollowup()
+    monkeypatch.setattr(followup_model, "_runner", followup_model._Runner(installed=True))
+    monkeypatch.setattr(followup_model, "_loader", fake.load)
+    monkeypatch.setattr(settings, "followup_model", "local")
     return fake
 
 

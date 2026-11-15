@@ -39,7 +39,8 @@ export default defineConfig({
     { command: "python -m uvicorn app.main:app --host 127.0.0.1 --port 8011", cwd: "../backend",
       url: "http://127.0.0.1:8011/health", reuseExistingServer: false,
       // 가짜 마이크는 신호음만 내므로 실제 전사 모델을 돌리지 않는다(로컬 STT는 backend/tests/test_local_stt.py가 검사)
-      env: { AUTH_DISABLED: "true", STT_PROVIDER: "off", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "",
+      // 꼬리질문 모델도 끈다: e2e는 실제 모델을 불러오거나 내려받지 않는다(backend/tests/test_followup_model.py가 검사)
+      env: { AUTH_DISABLED: "true", STT_PROVIDER: "off", FOLLOWUP_MODEL: "off", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "",
         PRACTICE_INSIGHTS_ENABLED: "true",
         DATABASE_URL: `sqlite:///${database}`,
         RECORDINGS_DIR: recordings,

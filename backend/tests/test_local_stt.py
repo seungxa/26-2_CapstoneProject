@@ -336,5 +336,5 @@ def test_off_or_removed_provider_is_unavailable(client, local, monkeypatch, prov
 
 def test_health_reports_the_local_provider(client, local):
     health = client.get("/health").json()
-    assert set(health) == {"ok", "stt", "auth_disabled"}
+    assert set(health) == {"ok", "stt", "auth_disabled", "followup"}
     assert health["stt"]["provider"] == "local" and health["stt"]["available"] is True

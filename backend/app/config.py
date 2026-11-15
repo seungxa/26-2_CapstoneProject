@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -71,6 +72,18 @@ class Settings:
         # 다른 전사가 도는 동안 기다리는 최대 시간(초)과 자동 전사할 최대 녹음 길이(초)
         self.local_stt_queue_timeout_sec: float = _number(env, "LOCAL_STT_QUEUE_TIMEOUT_SEC", 60.0, float)
         self.local_stt_max_audio_sec: float = _number(env, "LOCAL_STT_MAX_AUDIO_SEC", 900.0, float)
+        # 꼬리질문 모델: local(llama.cpp로 이 서버 CPU에서 생성, 외부 전송 없음) | off(고정 문장만). 그 밖의 값은 off로 본다
+        self.followup_model: str = (env.get("FOLLOWUP_MODEL") or "local").strip().lower()
+        # 쓸 모델: Hugging Face 저장소와 그 안의 GGUF 파일
+        self.followup_model_repo: str = env.get("FOLLOWUP_MODEL_REPO") or "ssolunar/Kanana-2-1.3b-instruct-Q4_K_M-GGUF"
+        self.followup_model_file: str = env.get("FOLLOWUP_MODEL_FILE") or "Kanana-2-1.3b-instruct-Q4_K_M.gguf"
+        # 모델 캐시 폴더(비우면 Hugging Face 기본 캐시)
+        self.followup_model_dir: str = env.get("FOLLOWUP_MODEL_DIR", "")
+        self.followup_threads: int = _number(env, "FOLLOWUP_THREADS", min(4, os.cpu_count() or 1), int)
+        # 앞 생성을 기다리는 시간과 생성 시간을 합친 상한(초). 넘으면 고정 문장을 쓴다
+        self.followup_timeout_sec: float = _number(env, "FOLLOWUP_TIMEOUT_SEC", 45.0, float)
+        self.followup_allow_download: bool = env.get("FOLLOWUP_ALLOW_DOWNLOAD", "true").lower() == "true"
+        self.followup_preload: bool = env.get("FOLLOWUP_PRELOAD", "false").lower() == "true"
         # 원본 녹음 보관 기간(일)과 만료 녹음 정리 주기(분)
         self.audio_retention_days: int = _number(env, "AUDIO_RETENTION_DAYS", 30, int)
         self.purge_interval_min: int = _number(env, "PURGE_INTERVAL_MIN", 60, int)
@@ -92,6 +105,10 @@ class Settings:
                     or url.username is not None or url.password is not None
                     or url.path or url.query or url.fragment):
                 raise ConfigError("SUPABASE_URL에는 프로젝트의 HTTPS 원점 주소가 필요해요(로컬 루프백은 HTTP 허용)")
+        if not (0 < self.followup_timeout_sec < math.inf):
+            raise ConfigError("FOLLOWUP_TIMEOUT_SEC must be a number of seconds greater than 0")
+        if self.followup_threads < 1:
+            raise ConfigError("FOLLOWUP_THREADS must be at least 1")
         if self.auth_disabled and not self.database_url.startswith("sqlite"):
             log.warning("AUTH_DISABLED=true(개발 모드)로 Postgres에 연결합니다: X-User-Id 헤더를 그대로 믿어요. "
                         "배포 환경이라면 AUTH_DISABLED=false로 두세요")

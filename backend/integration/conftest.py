@@ -101,7 +101,7 @@ class Database:
         env = {**os.environ, "DATABASE_URL": self.url, "AUTH_DISABLED": "false", "APP_ENV": "production",
                "SUPABASE_JWT_MODE": "hs256", "SUPABASE_JWT_SECRET": self.cluster.secret,
                "SUPABASE_URL": ISSUER, "SUPABASE_SERVICE_ROLE_KEY": "",
-               "STT_PROVIDER": "off", "LOCAL_STT_ALLOW_DOWNLOAD": "false",
+               "STT_PROVIDER": "off", "LOCAL_STT_ALLOW_DOWNLOAD": "false", "FOLLOWUP_MODEL": "off",
                "RECORDINGS_DIR": str(self.cluster.path / "recordings"), "PRACTICE_INSIGHTS_ENABLED": str(insights).lower()}
         with log.open("w") as output:
             process = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",

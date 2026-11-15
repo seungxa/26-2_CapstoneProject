@@ -111,7 +111,7 @@ def test_openai_settings_are_gone(client, monkeypatch, caplog):
     assert "openai" not in stt._PROVIDERS
 
     health = client.get("/health").json()
-    assert set(health) == {"ok", "stt", "auth_disabled"}
+    assert set(health) == {"ok", "stt", "auth_disabled", "followup"}
 
     h = {"X-User-Id": f"no-feedback-{uuid.uuid4()}"}
     s = client.post("/practice/sessions", headers=h, json={"mode": "free", "count": 1}).json()

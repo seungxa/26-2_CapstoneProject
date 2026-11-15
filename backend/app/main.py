@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
-from . import stt
+from . import followup_model, stt
 from .config import settings
 from .db import SessionLocal, init_db
 from .retention import purge_loop, run_purge
@@ -23,6 +24,13 @@ async def lifespan(_: FastAPI):
     if settings.stt_provider not in ("local", "off"):
         logging.getLogger(__name__).warning("STT_PROVIDER=%r is not local|off: transcription is off",
                                             settings.stt_provider)
+    if settings.followup_model not in ("local", "off"):
+        logging.getLogger(__name__).warning("FOLLOWUP_MODEL=%r is not local|off: follow-up questions use templates",
+                                            settings.followup_model)
+    if settings.followup_preload and settings.followup_model == "local":
+        # 배포용: 첫 요청 전에 꼬리질문 모델을 불러 둔다. 내려받기·로딩이 길 수 있어 시작을 막지 않고 뒤에서 돈다
+        # (그동안 /health.followup.state는 loading, 들어온 요청은 시간 상한 안에서 기다린다)
+        threading.Thread(target=followup_model.preload, name="followup-preload", daemon=True).start()
     with SessionLocal() as db:
         seed_question_bank(db)
     # 만료된 원본 녹음: 시작할 때 한 번, 이후 PURGE_INTERVAL_MIN분마다 정리(실패해도 앱은 계속 뜬다)
@@ -61,5 +69,7 @@ async def invalid_id(_: Request, exc: DataError):
 
 @app.get("/health")
 def health():
-    """stt: 음성 전사 제공자와 상태. 외부 AI 서비스는 쓰지 않으므로 그 상태는 없다."""
-    return {"ok": True, "stt": stt.status(), "auth_disabled": settings.auth_disabled}
+    """stt: 음성 전사 제공자와 상태. followup: 로컬 꼬리질문 모델의 상태(모델을 불러오지는 않는다).
+    외부 AI 서비스는 쓰지 않으므로 그 상태는 없다."""
+    return {"ok": True, "stt": stt.status(), "auth_disabled": settings.auth_disabled,
+            "followup": followup_model.status()}
