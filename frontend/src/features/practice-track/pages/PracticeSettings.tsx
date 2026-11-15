@@ -24,9 +24,14 @@ export default function PracticeSettings() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; warn: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Promise transcription only once /health confirms it (same rule as the interview consent card)
+  const [transcribes, setTranscribes] = useState(false);
 
   useEffect(() => {
     api.settings().then(setSt).catch((e) => setErr(e.message));
+    let alive = true;
+    api.health().then((h) => { if (alive) setTranscribes(h.stt.available === true); }).catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
@@ -79,6 +84,7 @@ export default function PracticeSettings() {
         <ConsentPanel
           retentionDays={days}
           initialKeepAudio={st.keep_audio}
+          transcription={transcribes}
           buttonLabel="Agree"
           onConsented={(s) => {
             setSt(s);
@@ -105,12 +111,12 @@ export default function PracticeSettings() {
 
       <section className="card">
         <h2>Privacy</h2>
-        <p>Your voice is transcribed on our server and isn't sent to other services.</p>
+        <p>{transcribes ? "Your voice is transcribed on our server and isn't sent to other services." : "Your voice is saved on our server and isn't sent to other services."}</p>
         <p>Camera video never leaves your device.</p>
         <details className="fold">
           <summary>Details</summary>
           <ul className="bullets small">
-            <li>Audio is deleted right after transcription. Kept audio, and audio that couldn't be transcribed, is deleted after {days} days.</li>
+            <li>{transcribes ? `Audio is deleted right after transcription. Kept audio, and audio that couldn't be transcribed, is deleted after ${days} days.` : `Audio is deleted after ${days} days.`}</li>
             <li>Changing the keep setting applies to new recordings. Saved audio keeps its deletion date.</li>
             <li>Transcripts, ratings, and notes stay in your history until you delete that practice.</li>
             <li>Speech and pause timing and camera results are worked out in your browser, never sent, and cleared when you reload.</li>

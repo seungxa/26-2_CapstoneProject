@@ -171,6 +171,8 @@ test("permanent audio error can recover to text and unfinished last answer can r
 test("recorded answer can retry transcription and display returned Korean text", async ({ page, request }) => {
   const { session } = await seed(request);
   const aid = session.answers[0].id;
+  // The e2e server has transcription off, which hides Retry Transcription; this test needs it on
+  await page.route(`**/health`, (route) => route.fulfill({ json: { ok: true, auth_disabled: true, stt: { provider: "local", available: true, model: null, state: "ready", error: null } } }));
   await page.goto(`/practice/sessions/${session.id}/run`);
   // 첫 녹음 전에는 녹음 동의가 필요하다(글 답변에는 묻지 않는다). 동의하면 바로 답변을 시작한다
   await page.getByRole("button", { name: "Agree & Start" }).click();

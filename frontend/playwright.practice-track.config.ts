@@ -39,8 +39,8 @@ export default defineConfig({
     { command: "python -m uvicorn app.main:app --host 127.0.0.1 --port 8011", cwd: "../backend",
       url: "http://127.0.0.1:8011/health", reuseExistingServer: false,
       // 가짜 마이크는 신호음만 내므로 실제 전사 모델을 돌리지 않는다(로컬 STT는 backend/tests/test_local_stt.py가 검사)
-      env: { AUTH_DISABLED: "true", OPENAI_API_KEY: "", STT_PROVIDER: "off", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "",
-        PRACTICE_INSIGHTS_ENABLED: "true", PRACTICE_COMPETENCY_EVIDENCE_ENABLED: "false",
+      env: { AUTH_DISABLED: "true", STT_PROVIDER: "off", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "",
+        PRACTICE_INSIGHTS_ENABLED: "true",
         DATABASE_URL: `sqlite:///${database}`,
         RECORDINGS_DIR: recordings,
         CORS_ORIGINS: "http://localhost:5179,http://127.0.0.1:5179" } },

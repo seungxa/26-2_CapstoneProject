@@ -40,16 +40,17 @@ function verdictName(a: PracticeAnswer, m: AnswerMetrics | undefined) {
 }
 
 /** Transcription problems only, next to the transcript. A normal recording says nothing */
-function recordingNote(a: PracticeAnswer, hasTranscript: boolean): string | null {
+function recordingNote(a: PracticeAnswer, hasTranscript: boolean, retryable: boolean): string | null {
   const failed = a.stt_status === "failed" || a.stt_status === "unavailable";
   const what = a.stt_status === "failed" ? "Couldn't transcribe this recording" : "This recording wasn't transcribed";
-  if (failed && a.audio_available) return `${what}. Retry, or type the transcript below.`;
+  if (failed && a.audio_available) return retryable ? `${what}. Retry, or type the transcript below.` : `${what}. Type the transcript below.`;
   if (failed && !hasTranscript) return `${what}${a.audio_deleted_at ? ", and the recording was deleted" : ""}. Type the transcript below.`;
   if (!failed && a.audio_deleted_at && !a.audio_available && !hasTranscript) return "The recording was deleted, and there's no transcript.";
   return null;
 }
 
-function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId, onReportsChanged, onTranscriptDirty, staleForDraft, hasEarlierDraft }: {
+function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId, onReportsChanged, onTranscriptDirty, staleForDraft, hasEarlierDraft, retryable }: {
+  retryable:boolean;
   onTranscriptDirty:(id:string,dirty:boolean)=>void;
   staleForDraft:boolean;
   hasEarlierDraft:boolean;
@@ -131,7 +132,7 @@ function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId
   // 한국어 발화 속도 참고용: 전사 글자 수 / 분
   const cpm = !transcriptDirty && a.recording_transcript_current === true && a.transcript && a.duration_sec ? Math.round((a.transcript.replace(/\s/g, "").length / a.duration_sec) * 60) : null;
   const facts = localDeliveryFacts({ id: sessionId, answers: [a] } as PracticeSession);
-  const sttNote = recordingNote(a, hasTranscript);
+  const sttNote = recordingNote(a, hasTranscript, retryable);
 
   const retranscribe = () => act(async () => {
     if (dirty) onChange(await api.reflect(a.id, reflectionPatch));
@@ -187,7 +188,7 @@ function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId
           {sttNote && (
             <div className="row small warn-text">
               <span className="grow">{sttNote}</span>
-              {a.audio_available && (a.stt_status === "failed" || a.stt_status === "unavailable") && <button disabled={busy} onClick={retranscribe}>Retry Transcription</button>}
+              {retryable && a.audio_available && (a.stt_status === "failed" || a.stt_status === "unavailable") && <button disabled={busy} onClick={retranscribe}>Retry Transcription</button>}
             </div>
           )}
           {/* 다시 불러온 답변에 원본이 없으면(그 사이 지움) 동의해도 다시 전사할 수 없으니 동의를 묻지 않는다 */}
@@ -254,6 +255,9 @@ export default function SessionReview() {
   const summaryTitle = useId();
   const [,refreshDelivery]=useState(0);
   const [s, setS] = useState<PracticeSession | null>(null);
+  // Hide Retry Transcription once /health says the server can't transcribe (unknown keeps it)
+  const [sttOff, setSttOff] = useState(false);
+  useEffect(() => { let alive = true; api.health().then((h) => { if (alive) setSttOff(!h.stt.available); }).catch(() => {}); return () => { alive = false; }; }, []);
   const [refreshPending, setRefreshPending] = useState(false);
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -524,7 +528,7 @@ export default function SessionReview() {
 
       <section aria-label="Answers" className="answer-list">
         {s.answers.map((a) => (
-          <AnswerCard key={a.id} verdict={verdictName(a, metrics.get(a.id))} onTranscriptDirty={onTranscriptDirty} staleForDraft={a.order_no>=firstDirtyOrder} hasEarlierDraft={a.order_no>firstDirtyOrder} sessionId={s.id} onReportsChanged={()=>refreshDelivery(v=>v+1)} a={a} context={s.context_snapshot} rubric={rubric} onChange={onAnswer} onReload={reload} />
+          <AnswerCard key={a.id} retryable={!sttOff} verdict={verdictName(a, metrics.get(a.id))} onTranscriptDirty={onTranscriptDirty} staleForDraft={a.order_no>=firstDirtyOrder} hasEarlierDraft={a.order_no>firstDirtyOrder} sessionId={s.id} onReportsChanged={()=>refreshDelivery(v=>v+1)} a={a} context={s.context_snapshot} rubric={rubric} onChange={onAnswer} onReload={reload} />
         ))}
       </section>
     </div>

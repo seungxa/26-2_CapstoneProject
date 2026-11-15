@@ -254,6 +254,8 @@ export default function SessionRunner() {
   if (!answer) return <div className="card"><Link to={`/practice/sessions/${id}`}>See Review</Link></div>;
   // 녹음으로 답하려면 먼저 동의해야 한다: 그동안 주 버튼은 기다리고, 동의 카드의 버튼이 주 동작이다
   const needsConsent = inputMode === "audio" && consent === "needed";
+  /** Retrying only makes sense when the server can transcribe; hidden once /health says it can't (unknown keeps it) */
+  const retryable = !stt || stt.available;
   const notice = inputMode === "audio" && stt ? transcriptionNotice(stt) : null;
   const ctx = session.context_snapshot;
   const application = ctx?.company ? [ctx.company, ctx.position].filter(Boolean).join(" · ") : null;
@@ -304,8 +306,8 @@ export default function SessionRunner() {
       {phase === "uploading" && <p className="runner-main" role="status">Saving your answer…</p>}
       {phase === "reviewing" && <div className="runner-review">
         {answer.audio_available && answer.stt_status !== "done" && <div className="row small">
-          <p className="warn-text grow">{answer.stt_status === "failed" ? "Couldn't transcribe this recording. Type your answer below, or retry." : "This recording wasn't transcribed. Type your answer below."}</p>
-          <button disabled={busy || uploadFailed} onClick={retranscribe}>Retry Transcription</button>
+          <p className="warn-text grow">{answer.stt_status === "failed" && retryable ? "Couldn't transcribe this recording. Type your answer below, or retry." : answer.stt_status === "failed" ? "Couldn't transcribe this recording. Type your answer below." : "This recording wasn't transcribed. Type your answer below."}</p>
+          {retryable && <button disabled={busy || uploadFailed} onClick={retranscribe}>Retry Transcription</button>}
         </div>}
         {answer.recorded_at && answer.audio_deleted_at && !answer.transcript?.trim() && <p className="small warn-text">The recording was deleted. Type your answer below.</p>}
         {consentFor === "upload" && uploadFailed && consentPanel("Agree first to save the answer you just recorded.", "Agree & Save Recording", () => void finishAnswer())}
