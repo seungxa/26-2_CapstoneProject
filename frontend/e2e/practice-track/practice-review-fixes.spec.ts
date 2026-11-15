@@ -216,3 +216,39 @@ test('legacy AI coaching and debrief still render',async({page,request})=>{
  await expect(page.getByRole('button',{name:'Practice Weak Answers Again',exact:true})).toBeEnabled();
  expect(errors).toEqual([]);
 });
+
+// Sessions from before OpenAI was removed can carry debrief_status 'failed': the AI summary failed while the answer
+// checks were kept. New code never writes it, so it goes straight into this run's SQLite file.
+const FAILED_SUMMARY=`
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+con.execute("update practice_sessions set debrief_status = 'failed' where id = ?", (sys.argv[2],))
+con.commit()
+`;
+const NOT_EVERY="Couldn't check every answer.";
+
+test('a legacy failed summary shows an error only while a transcribed answer has no checks',async({page,request})=>{
+ const errors:string[]=[]; page.on('pageerror',e=>errors.push(e.message));
+ const legacy=async(coached:number)=>{
+  const questions=[];
+  for(let i=0;i<2;i++) questions.push(await (await request.post(`${API}/practice/questions`,{data:{category:'직무',text:`예전 요약 실패 ${i} ${Date.now()}-${Math.random()}`}})).json());
+  const s=await (await request.post(`${API}/practice/sessions`,{data:{mode:'free',question_ids:questions.map(q=>q.id)}})).json();
+  for(const a of [...s.answers].sort((x:{order_no:number},y:{order_no:number})=>x.order_no-y.order_no)) {
+   await request.patch(`${API}/practice/answers/${a.id}`,{data:{transcript:`예전 답변 ${a.order_no}에서 원인을 찾았습니다.`}});
+   if(a.order_no<=coached) expect((await request.post(`${API}/practice/answers/${a.id}/coach`)).ok()).toBe(true);
+  }
+  execFileSync('python',['-I','-c',FAILED_SUMMARY,databasePath(),s.id],{stdio:'pipe'});
+  return s;
+ };
+ // Every answer kept its checks: no red line
+ const checked=await legacy(2);
+ await page.goto(`/practice/sessions/${checked.id}`);
+ await expect(page.getByRole('heading',{name:'Summary',exact:true})).toBeVisible();
+ await expect(page.locator(`#answer-${checked.answers[0].id} > summary`)).not.toContainText('Not Checked');
+ await expect(page.locator('.review-summary')).not.toContainText(NOT_EVERY);
+ // One answer has a transcript but no checks: the line says so
+ const partial=await legacy(1);
+ await page.goto(`/practice/sessions/${partial.id}`);
+ await expect(page.locator('.review-summary .err')).toHaveText(`${NOT_EVERY} Use Check Answer on the answers without checks.`);
+ expect(errors).toEqual([]);
+});

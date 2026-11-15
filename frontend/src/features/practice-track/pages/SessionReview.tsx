@@ -176,7 +176,7 @@ function AnswerCard({ a, verdict, context, rubric, onChange, onReload, sessionId
           <h3 id={`${ids}-transcript`}>Transcript</h3>
           {a.audio_available && (
             <div className="answer-audio">
-              {audio ? <audio controls src={audio} /> : <p className="muted small">{audioErr ? `Couldn't load the recording. ${audioErr}` : "Loading the recording…"}</p>}
+              {audio ? <audio controls src={audio} /> : audioErr ? <p className="small warn-text" data-testid="audio-error">{audioErr}</p> : <p className="muted small">Loading the recording…</p>}
               <div className="row small muted">
                 {a.audio_expires_at && (
                   <span className="grow">{daysLeft(a.audio_expires_at) >= 1 ? `Deleted automatically in ${plural(daysLeft(a.audio_expires_at), "day")}` : "Deleted automatically soon"}</span>
@@ -439,6 +439,10 @@ export default function SessionReview() {
   // 'pending'인데 서버가 도는 작업이 없다고 하면 작업이 사라진 것(서버 재시작 등)이다
   const lost = status === "pending" && !view.debrief_running;
   const debriefBusy = cardBusy || paused;
+  // Only sessions from before OpenAI was removed say 'failed' (their AI summary failed; the checks were kept). Say it
+  // only while a saved transcript still has no checks, i.e. a card shows "Not checked yet."
+  const unchecked = status === "failed" && !view.debrief_running
+    && s.answers.some((a) => !!a.transcript?.trim() && !a.coaching_report && !a.ai_feedback);
 
   return (
     <div className="review" onClickCapture={openLinkedAnswer}>
@@ -459,7 +463,7 @@ export default function SessionReview() {
         {status === "pending" && (lost || gaveUp
           ? <div className="row small warn-text"><span className="grow">{lost ? "Checking your answers stopped before it finished." : "Checking your answers is taking longer than usual."}</span><button disabled={debriefBusy} onClick={retryDebrief}>Try Again</button></div>
           : <p className="small muted" role="status">Checking your answers…</p>)}
-        {status === "failed" && <p className="err">Couldn't check every answer. Use Check Answer on the answers without checks.</p>}
+        {unchecked && <p className="err">Couldn't check every answer. Use Check Answer on the answers without checks.</p>}
         {status !== "pending" && view.debrief_running && !gaveUp && <p className="small muted" role="status">Checking your answers…</p>}
         {cardErr && <p className="err" role="alert">{cardErr}</p>}
         {paused

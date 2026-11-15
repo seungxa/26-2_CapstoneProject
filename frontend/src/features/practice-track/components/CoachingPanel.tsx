@@ -50,7 +50,8 @@ export default function CoachingPanel({ report, context, rubric, showNextAction 
       {report.input_status === "legacy_unverified" && <p className="small muted">Saved by an earlier version. It may not match this transcript, so the summary leaves it out.</p>}
       {showNextAction && <p className="next-action"><b>Next:</b> <span lang={langOf(report.next_action)}>{report.next_action}</span></p>}
       {report.criteria.every((c) => c.status === "판단유보") ? <>
-        <p className="not-judged">Not judged: add your role and a result you can check, such as a number.</p>
+        {/* Neutral on purpose: the reasons folded below say what each criterion needs (they may already credit numbers) */}
+        <p className="not-judged">Not judged by the {ai ? "earlier AI check" : "basic check"}. Open Details for what to check.</p>
         <details className="fold"><summary>Details</summary>{criteria}</details>
       </> : criteria}
       {ai && rubric && <RubricDetails rubric={rubric} />}

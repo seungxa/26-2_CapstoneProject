@@ -48,3 +48,36 @@ test("account reset also rejects a response whose JSON body is still being read"
   finish([{id:"previous-user"}]);
   await expect(pending).rejects.toMatchObject({name:"AbortError"});
 });
+
+test("recording load errors are English and say what to do", async () => {
+  const hangul = /[가-힣]/;
+  const client = createApiClient({ baseUrl: "https://api.example.test" });
+  const failWith = async (response: Response) => {
+    globalThis.fetch = async () => response;
+    return client.audioUrl("a1").then(() => { throw new Error("expected a failure"); }, (e: Error) => e);
+  };
+  // 404: the server's sentence tells a deleted original apart from a missing file
+  const deleted = await failWith(Response.json({ detail: "The original recording was deleted." }, { status: 404 }));
+  expect([(deleted as { status?: number }).status, deleted.message]).toEqual([404, "The original recording was deleted."]);
+  const missing = await failWith(new Response("", { status: 404 }));
+  expect([(missing as { status?: number }).status, missing.message]).toEqual([404, "The recording wasn't found."]);
+  const storage = await failWith(Response.json({ detail: "Could not reach recording storage. Try again in a moment." }, { status: 502 }));
+  expect([(storage as { status?: number }).status, storage.message]).toEqual([502, "Couldn't load the recording. Try again."]);
+  globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  const offline = await client.audioUrl("a1").then(() => null, (e: Error) => e);
+  expect(offline?.message).toBe("Couldn't load the recording. Try again.");
+  for (const e of [deleted, missing, storage, offline]) expect(e?.message).not.toMatch(hangul);
+});
+
+test("a request canceled by an account change says so in English", async () => {
+  let finish!: (r: Response) => void;
+  globalThis.fetch = () => new Promise<Response>(resolve => { finish = resolve; });
+  const client = createApiClient({ baseUrl: "https://api.example.test" });
+  const pending = client.audioUrl("a1");
+  await Promise.resolve(); await Promise.resolve();
+  client.resetSession();
+  finish(new Response(new Blob(["x"]), { status: 200 }));
+  const error = await pending.then(() => null, (e: Error) => e);
+  expect(error).toMatchObject({ name: "AbortError" });
+  expect(error?.message).not.toMatch(/[가-힣]/);
+});

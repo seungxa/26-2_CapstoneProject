@@ -16,7 +16,6 @@ export default function PracticeHome() {
   const [params] = useSearchParams();
   const [taxonomy,setTaxonomy]=useState<PracticeTaxonomy|null>(null);
   const [classification,setClassification]=useState<ClassificationInput>({});
-  const [genClassification,setGenClassification]=useState<ClassificationInput>({});
   const [tagFilter,setTagFilter]=useState({type:'',keys:[] as string[],match:'any' as 'any'|'all'});
   const [editing,setEditing]=useState<string|null>(null);
   const [editTags,setEditTags]=useState<ClassificationInput>({});
@@ -141,7 +140,6 @@ export default function PracticeHome() {
         } : {}),
         count: gen.count,
         essay_basis: essayBasis,
-        ...(taxonomy?.enabled?genClassification:{}),
       });
       if (made.length === 0) throw new Error("No new questions: they're all in your list already. Try a different essay.");
       setFilter((f) => ({ ...f, source: "generated", category: "" }));
@@ -326,7 +324,6 @@ export default function PracticeHome() {
             <label>Essay<textarea value={gen.essay_text} onChange={(e) => setGen({ ...gen, essay_text: e.target.value })} /></label>
           </>
         )}
-        <ClassificationControls taxonomy={taxonomy} value={genClassification} onChange={setGenClassification} label="Tags for new questions"/>
         <div className="row bottom">
           <label>Number of questions<input type="number" min={1} max={10} value={gen.count} onChange={(e) => setGen({ ...gen, count: +e.target.value })} /></label>
           <button disabled={busy} onClick={generate}>Generate Questions</button>

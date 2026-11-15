@@ -6,6 +6,7 @@ import { API } from "./env";
 const LONG_Q = "지금까지 경험한 프로젝트 가운데 가장 어려웠던 순간을 하나 고르고, 그때 팀과 본인이 각각 어떤 판단을 했으며 결과가 어땠는지 아주 자세하게 설명해 주세요".repeat(2);
 const TEAM = "우리 팀은 서비스 응답 속도를 개선하기 위해 캐시 구조를 바꾸고 배포 과정을 다시 설계해서 결과적으로 사용자 불만을 크게 줄였습니다";
 const LIMIT = "Rule-based checks, not a hiring assessment.";
+const NOT_JUDGED = "Not judged by the basic check. Open Details for what to check.";
 
 async function session(request: APIRequestContext, texts: string[]) {
   const ids = [];
@@ -61,7 +62,7 @@ test("review leads with one summary", async ({ page, request }) => {
   await expect(card.getByLabel("Transcript", { exact: true })).toHaveAttribute("lang", "ko");
   await expect(card.getByRole("heading", { name: "Checks", exact: true })).toBeVisible();
   // All three criteria are Not Judged: one line, with the three reasons folded
-  await expect(card.getByText(/^Not judged: add /)).toBeVisible();
+  await expect(card.locator(".not-judged")).toHaveText(NOT_JUDGED);
   await expect(card.locator(".criterion").first()).toBeHidden();
   await expect(card.getByRole("heading", { name: "Self Rating & Note", exact: true })).toBeVisible();
   await expect(card.getByRole("radio", { name: "2 stars", exact: true })).toBeChecked();
@@ -154,4 +155,19 @@ test("no horizontal scroll with an answer card and the summary details open", as
   await card.locator(":scope > summary").click();
   await expect(card).not.toHaveAttribute("open");
   expect(await noOverflow(page)).toBeLessThanOrEqual(0);
+});
+
+test("the Not judged line stays neutral when the answer already has numbers", async ({ page, request }) => {
+  const s = await session(request, ["성과를 어떻게 측정하셨나요?"]);
+  const a = s.answers[0];
+  await request.patch(`${API}/practice/answers/${a.id}`, { data: { transcript: "응답 시간을 500ms에서 300ms로 줄였습니다." } });
+  expect((await request.post(`${API}/practice/answers/${a.id}/coach`)).ok()).toBe(true);
+  await page.goto(`/practice/sessions/${s.id}`);
+  const card = page.locator(`#answer-${a.id}`);
+  await card.locator(":scope > summary").click();
+  // One neutral line; the reasons below it are the ones that talk about the numbers
+  await expect(card.locator(".not-judged")).toHaveText(NOT_JUDGED);
+  await expect(card.locator(".coaching-panel")).not.toContainText("such as a number");
+  await card.locator(".coaching-panel > details.fold > summary").click();
+  await expect(card.locator(".criterion").first()).toContainText("The answer includes numbers.");
 });

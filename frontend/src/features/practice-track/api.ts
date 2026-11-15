@@ -32,6 +32,10 @@ export type ApiClientOptions = {
   onSessionReset?: () => void;
 };
 
+/** A request dropped because the signed-in account changed (callers normally ignore an AbortError) */
+const CANCELED = "The request was canceled because the account changed. Reload the page.";
+const AUDIO_FAILED = "Couldn't load the recording. Try again.";
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
@@ -52,7 +56,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     const controller = new AbortController();
     pending.add(controller);
     const current = () => {
-      if (revision !== generation || controller.signal.aborted) throw new DOMException("사용자가 변경되어 요청을 취소했어요", "AbortError");
+      if (revision !== generation || controller.signal.aborted) throw new DOMException(CANCELED, "AbortError");
     };
     const send = async () => {
       const token = await options.getAccessToken?.();
@@ -90,7 +94,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
       throw new ApiError(res.status, msg);
     }
     const value = res.status === 204 ? undefined : await res.json();
-    if (revision !== generation) throw new DOMException("사용자가 변경되어 요청을 취소했어요", "AbortError");
+    if (revision !== generation) throw new DOMException(CANCELED, "AbortError");
     return value as T;
   }
 const qs = (p: Record<string, string | string[] | undefined>) => {
@@ -112,7 +116,8 @@ return {
   addQuestion: (b: { category: Category; text: string; job_category?: string | null } & ClassificationInput) =>
     req<Question>("POST", "/practice/questions", b),
   deleteQuestion: (id: string) => req<void>("DELETE", `/practice/questions/${id}`),
-  generateQuestions: (b: ClassificationInput & {
+  // Generated questions come from templates; tags aren't sent (the server ignores them for generation)
+  generateQuestions: (b: {
     application_id?: string;
     company?: string;
     position?: string;
@@ -151,15 +156,21 @@ return {
   },
   audioUrl: async (answerId: string) => {
     const revision = generation;
-    const res = await request("GET", `/practice/answers/${answerId}/audio`);
+    let res: Response;
+    try {
+      res = await request("GET", `/practice/answers/${answerId}/audio`);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      throw new Error(AUDIO_FAILED); // offline or the server is unreachable
+    }
     if (!res.ok) {
-      // 404는 두 경우다: 원본을 지웠다(서버가 삭제 기록을 보고 알린다) / 지우지 않았는데 저장소에서 파일을 찾지 못했다
-      const detail = await res.json().then((j) => j.detail, () => null);
-      const deleted = "원본 녹음은 삭제됐어요";
-      throw new ApiError(res.status, res.status !== 404 ? "녹음을 불러오지 못했습니다" : detail === deleted ? deleted : "녹음 파일을 찾지 못했어요");
+      // 404 has two cases, and the server's sentence tells them apart: the original was deleted (it checks the deletion
+      // record) / it wasn't deleted but storage has no file. Anything else is a load failure worth retrying
+      const detail = await res.json().then((j) => (typeof j?.detail === "string" && j.detail.trim() ? j.detail : null), () => null);
+      throw new ApiError(res.status, res.status === 404 ? detail ?? "The recording wasn't found." : AUDIO_FAILED);
     }
     const blob = await res.blob();
-    if (revision !== generation) throw new DOMException("사용자가 변경되어 요청을 취소했어요", "AbortError");
+    if (revision !== generation) throw new DOMException(CANCELED, "AbortError");
     return URL.createObjectURL(blob);
   },
   retryTranscribe: (answerId: string) => req<PracticeAnswer>("POST", `/practice/answers/${answerId}/transcribe`),

@@ -55,3 +55,37 @@ test("Practice and Track screens show no Korean outside lang=ko content", async 
     await request.put(`${API}/practice/settings`, { data: { consent: false } });
   }
 });
+
+test("a recording that can't be loaded is explained in English, once", async ({ page, request }) => {
+  const q = await (await request.post(`${API}/practice/questions`, { data: { category: "인성", text: `녹음 불러오기 실패 ${Date.now()}` } })).json();
+  const session = await (await request.post(`${API}/practice/sessions`, { data: { mode: "free", question_ids: [q.id], prep_sec: 0, answer_sec: 30 } })).json();
+  const answer = session.answers[0].id;
+  await request.put(`${API}/practice/settings`, { data: { consent: true } });
+  try {
+    // Transcription is off on the e2e server, so the upload keeps the original and the review tries to load it
+    const uploaded = await request.post(`${API}/practice/answers/${answer}/audio`, {
+      multipart: { file: { name: "rec.webm", mimeType: "audio/webm", buffer: Buffer.from("not-real-audio") }, duration_sec: "5" },
+    });
+    expect(uploaded.ok()).toBeTruthy();
+    for (const [status, detail, shown] of [
+      [404, "The original recording was deleted.", "The original recording was deleted."],
+      [404, null, "The recording wasn't found."],
+      [502, "Could not reach recording storage. Try again in a moment.", "Couldn't load the recording. Try again."],
+    ] as const) {
+      await page.unroute("**/answers/*/audio");
+      await page.route("**/answers/*/audio", (route) => route.request().method() !== "GET" ? route.continue()
+        : route.fulfill({ status, contentType: "application/json", body: detail ? JSON.stringify({ detail }) : "" }));
+      await page.goto(`/practice/sessions/${session.id}`);
+      const card = page.locator(`#answer-${answer}`);
+      await card.locator(":scope > summary").click();
+      const note = card.locator(".answer-audio");
+      await expect(note).toContainText(shown);
+      const said = (await note.textContent()) ?? "";
+      expect(said.split("Couldn't load the recording.").length - 1, said).toBeLessThanOrEqual(1);
+      const text = await screenText(page);
+      expect(text.match(new RegExp(`.{0,30}${HANGUL.source}.{0,30}`, "g")), `Korean text outside lang="ko" (${status})`).toBeNull();
+    }
+  } finally {
+    await request.put(`${API}/practice/settings`, { data: { consent: false } });
+  }
+});

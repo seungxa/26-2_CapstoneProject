@@ -114,3 +114,21 @@ test('legacy debrief remains readable as history and is excluded from current in
  await expect(page.locator('.summary-details')).not.toContainText('보관한 이전 버전의 교훈');
  await expect(page.locator('.earlier-review')).toContainText('이전 행동');
 });
+
+test('generating questions offers no tag controls and sends no tags', async ({page,request}) => {
+ const taxonomy=await (await request.get(`${API}/practice/taxonomy`)).json();
+ test.skip(!taxonomy.enabled,'taxonomy schema is disabled');
+ await page.goto('/practice');
+ await page.getByText('Generate Questions from an Essay',{exact:true}).click();
+ const generate=page.locator('details').filter({has:page.getByText('Generate Questions from an Essay',{exact:true})});
+ // Generated questions come from templates, so tags chosen here would be ignored: there are none to choose
+ await expect(generate.getByRole('group',{name:/Tags/})).toHaveCount(0);
+ await expect(generate.getByLabel('Question type')).toHaveCount(0);
+ await generate.getByLabel('Essay',{exact:true}).fill(`캐시를 도입해 응답 시간을 ${Date.now()}ms 줄였습니다.`);
+ await generate.getByRole('spinbutton').fill('1');
+ const sent=page.waitForRequest(r=>r.method()==='POST'&&r.url().endsWith('/practice/questions/generate'));
+ await generate.getByRole('button',{name:'Generate Questions',exact:true}).click();
+ const body=(await sent).postDataJSON();
+ expect(body).not.toHaveProperty('question_type');
+ expect(body).not.toHaveProperty('competency_keys');
+});
