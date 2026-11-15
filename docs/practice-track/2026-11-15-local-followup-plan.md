@@ -57,17 +57,21 @@
 
 **생성 조건**
 - `n_ctx` 1536, `max_tokens` 96, `temperature` 0.1. (처음 계획은 1024와 0.3이었다. Task 3 시험 뒤 바꿨다: 숫자가 많은 1,200자 답변이 1,084~1,169토큰이었고, EXAONE 모델 카드가 한국어 대화에 0.1을 권한다. `followup-model-check.md` 참고)
-- 입력 전사문은 앞 1,200자까지만 넣는다.
+- 입력 전사문은 앞 1,200자까지만, 질문은 앞 300자까지만(`MAX_QUESTION_CHARS`, 긴 직접 입력 질문이 `n_ctx`를 넘지 않게) 넣는다.
 
 **검증 규칙** (`followup_text.validate_followup`)
-- 첫 줄만 쓴다.
-- 앞뒤 따옴표와 "꼬리질문:" 같은 머리말을 뗀다.
+- 맨 앞의 생각 블록(`<think>…</think>`)을 먼저 뗀다. 닫히지 않은 생각 블록만 있으면 빈 출력(`empty`)이다.
+- 그다음 내용이 있는 첫 줄만 쓴다. 머리말만 있는 줄(`**꼬리질문:**` 한 줄 뒤에 질문)은 건너뛰고, 그 밖의 첫 줄(평서문 등)은 그대로 검사한다.
+- 각 줄에서 다음을 뗀다: 앞의 목록 기호(`- `, `* `, `• `, `1. `, `2) `, `(1) `. 뒤에 빈칸이 있을 때만이라 `-5도`, `3.5초`는 그대로), 마크다운 꾸밈(`**…**`는 어디서나, `__…__`, `*…*`, `_…_`는 문장 전체나 `**꼬리질문:**`, `_답습_:` 같은 앞 머리말을 감쌀 때만이라 `__init__`, `user_id`는 그대로), "꼬리질문:" 같은 머리말, 6자 이하의 짧은 머리말 하나(`답습: `처럼 콜론 뒤에 빈칸이나 줄 끝이 있을 때만이라 `10:30`은 그대로).
+- 따옴표는 문장 전체를 감싼 짝(`"…"`, `“…”`, `'…'`, `‘…’`, `「…」` 등)일 때만 뗀다. `“40% 줄였습니다”라고 하셨는데, …?`의 따옴표는 남는다.
 - 한글 비율 ≥ 0.5 (글자 기준).
 - 길이 10~120자.
 - `?`로 끝나거나 `(주세요|주시겠어요|나요|까요|습니까)[.?]?$`에 맞아야 한다.
-- 다음 낱말이 들어 있으면 안 된다: `감정`, `기분`, `외모`, `성격`, `자신감`, `표정`.
+- 한 문장이어야 한다: 끝이 아닌 곳에 `?`, `!`, 또는 한글 뒤·빈칸 앞의 `.`(`입니다. 그때`)가 있으면 안 된다(`not_one_sentence`). `3.5초`, `Node.js`, `vs. `는 문장 끝으로 보지 않는다.
+- 원래 질문을 되풀이하면 안 된다: 빈칸과 문장 부호를 뺀 출력이 질문과 같거나 질문 전체를 품으면 버린다(`repeats_question`). 빈칸·문장 부호를 뺀 질문이 8자보다 짧으면(직접 입력한 "자기소개" 등) 같을 때만 버린다.
+- 다음 낱말이 들어 있으면 안 된다: `감정`, `기분`, `외모`, `성격`, `자신감`, `표정`, `느낌`, `심정`.
 - 출력의 숫자열은 모두 질문이나 전사문에 있어야 한다.
-- 실패 사유 코드: `empty`, `not_korean`, `length`, `not_question`, `forbidden`, `invented_number`.
+- 실패 사유 코드: `empty`, `not_korean`, `length`, `not_question`, `not_one_sentence`, `repeats_question`, `forbidden`, `invented_number`.
 
 **커밋:** 영어 Conventional Commits. 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`를 붙인다. push는 하지 않는다.
 
@@ -117,7 +121,8 @@
 
 ```python
 MAX_TRANSCRIPT_CHARS = 1200
-FORBIDDEN = ("감정", "기분", "외모", "성격", "자신감", "표정")
+MAX_QUESTION_CHARS = 300   # 최종 리뷰에서 더함
+FORBIDDEN = ("감정", "기분", "외모", "성격", "자신감", "표정", "느낌", "심정")   # 느낌·심정은 최종 리뷰에서 더함
 def build_messages(question: str, transcript: str, focus: str) -> list[dict]   # [{"role":"system",...},{"role":"user",...}]
 def validate_followup(raw: str, question: str, transcript: str) -> tuple[str | None, str | None]  # (정리된 문장, 실패 사유 코드)
 ```
@@ -218,10 +223,11 @@ def _loader()                  # 테스트가 바꿔 끼우는 지점: (settings
   - 로딩: 잠금으로 보호한 지연 로딩이다.
   - 직렬화: `threading.Semaphore(1)`을 쓴다. 남은 시간 동안만 acquire를 기다리고, 시간 안에 못 얻으면 `"timeout"`.
   - 생성: 작업 스레드에서 실행하고 `join(timeout=남은 시간)`으로 기다린다. 시간이 넘으면 `"timeout"`을 돌려준다. 스레드는 끝까지 돌고 마지막에 세마포어를 놓는다.
-  - 기본 로더(`_loader`): `llama_cpp.Llama.from_pretrained(repo_id, filename, cache_dir=FOLLOWUP_MODEL_DIR or None, n_ctx=1536, n_threads=FOLLOWUP_THREADS, verbose=False)`. (n_ctx는 Task 3에서 1024→1536)
-    - `FOLLOWUP_ALLOW_DOWNLOAD=false`면 HF 오프라인 모드(`HF_HUB_OFFLINE=1`)로 캐시만 쓴다.
+  - 기본 로더(`_loader`): 캐시 먼저 찾는다. `huggingface_hub.hf_hub_download(repo_id, filename, cache_dir=FOLLOWUP_MODEL_DIR or None, local_files_only=True)`로 캐시에 있는 파일 경로를 얻고, 그 파일을 `llama_cpp.Llama(model_path=…, n_ctx=1536, n_threads=FOLLOWUP_THREADS, n_threads_batch=FOLLOWUP_THREADS, verbose=False)`로 연다. (n_ctx는 Task 3에서 1024→1536)
+    - 캐시에 없을 때만 `local_files_only` 없이 한 번 내려받는다(`FOLLOWUP_ALLOW_DOWNLOAD=true`일 때). `false`면 내려받지 않고 불러오기 실패(`unavailable`, /health에 이유)로 끝난다.
+    - `Llama.from_pretrained`는 쓰지 않는다. 불러올 때마다 저장소 목록을 온라인으로 확인해서, 파일이 캐시에 있어도 시작할 때마다 Hugging Face에 접속하고 오프라인이면 실패한다.
   - 생성 호출: `create_chat_completion(messages, max_tokens=96, temperature=0.1)`(Task 3에서 0.3→0.1)의 `choices[0]["message"]["content"]`를 `validate_followup`에 넣는다.
-  - `requirements-followup.txt`: 첫 줄에 `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`, 그다음 `llama-cpp-python>=0.3`, `huggingface-hub>=0.24`.
+  - `requirements-followup.txt`: 첫 줄에 `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`, 그다음 `llama-cpp-python>=0.3.36`(EXAONE 4로 시험한 버전, 최종 리뷰에서 0.3에서 올림), `huggingface-hub>=0.24`.
   - `.env.example`: `FOLLOWUP_*` 설정을 각 한 줄 설명과 함께 넣는다.
 - [ ] **Step 4: 통과 확인.** 위 명령과 전체 `pytest -q`. Expected: 전체 PASS(`test_no_external_calls` 포함).
 - [ ] **Step 5: Commit** `feat(backend): run a local follow-up model with lazy loading, one-at-a-time and a time limit`
@@ -275,7 +281,7 @@ def _loader()                  # 테스트가 바꿔 끼우는 지점: (settings
 - Produces: 엔드포인트 응답 형식은 그대로다(`SessionOut`).
 
 - [ ] **Step 1: 실패하는 테스트** (`test_followup_endpoint.py`, `fake_followup` 사용)
-  - `generated_question_is_used`: fake가 유효 문장을 내면 새 꼬리질문의 `question.text`가 그 문장이고, 부모 연결과 `followup_reason`은 지금과 같다.
+  - `generated_question_is_used`: fake가 유효 문장을 내면 새 꼬리질문의 `question.text`가 그 문장이고, 부모 연결은 지금과 같다. `followup_reason`은 고정 문장의 이유 대신 "This follow-up was written from your answer."다(화면이 질문 위에 보여 주는 설명이라, 고정 문장의 이유를 두면 질문과 맞지 않는다. 최종 리뷰에서 바꿈). 고정 문장을 쓸 때의 이유는 그대로다.
   - `invalid_or_off_uses_template`: fake가 영어를 내거나 `off`면 새 질문이 기존 고정 문장(`followup.text`)과 같다.
   - `model_is_not_called_under_the_session_lock`:
     - `answer_coaching.lock_session`을 monkeypatch해 호출 순서를 기록한다. fake 모델 호출 시각도 함께 기록한다.
