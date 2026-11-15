@@ -40,10 +40,11 @@ def test_generated_question_is_used(client, fake_followup, caplog):
     assert r.status_code == 201, r.text
     parent, child = r.json()["answers"]
     assert child["question"]["text"] == "응답 시간 40%는 어떤 방법으로 측정했나요?"
-    # The parent link and the reason are the template's, as before
     assert child["parent_answer_id"] == aid
+    # The caption above the question is not the template's (that one explains the template question)
     template = parent["coaching_report"]["followup"]
-    assert child["followup_reason"] == template["reason"]
+    assert child["followup_reason"] == "This follow-up was written from your answer."
+    assert child["followup_reason"] != template["reason"]
     # The model saw this question and this answer
     assert len(fake_followup.calls) == 1
     prompt = fake_followup.calls[0]["messages"][-1]["content"]

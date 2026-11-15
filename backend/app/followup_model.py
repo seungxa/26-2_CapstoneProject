@@ -87,8 +87,9 @@ def _describe(e: Exception) -> str:
                     "The server checks the cache again in a few minutes.")
         return ("The follow-up model could not be downloaded. Check the network connection; "
                 "the server tries again in a few minutes.")
-    return ("The follow-up model could not be loaded. Check FOLLOWUP_MODEL_REPO and FOLLOWUP_MODEL_FILE; "
-            "the server tries again in a few minutes.")
+    # An older llama.cpp fails here too: it cannot read a newer architecture (EXAONE 4 was tested with 0.3.36)
+    return ("The follow-up model could not be loaded. Check FOLLOWUP_MODEL_REPO and FOLLOWUP_MODEL_FILE, "
+            "or upgrade llama-cpp-python; the server tries again in a few minutes.")
 
 
 class _Unavailable(Exception):

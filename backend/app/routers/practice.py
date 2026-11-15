@@ -778,6 +778,9 @@ def coach_answer(answer_id: str, user_id: str = Depends(current_user_id), db: Se
     return a
 
 
+GENERATED_FOLLOWUP_REASON = "This follow-up was written from your answer."
+
+
 @router.post("/answers/{answer_id}/followup", response_model=SessionOut, status_code=201)
 def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
     a = _own_answer(db, user_id, answer_id)
@@ -820,6 +823,8 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     # The model's question is about the answer it read. If that answer was changed and checked again meanwhile,
     # the current report's template is used instead
     generated = made.text is not None and (a.question.text, a.transcript) == (question, transcript)
+    # The template's reason explains the template question; the runner shows the reason above the question
+    reason = GENERATED_FOLLOWUP_REASON if generated else suggestion["reason"]
     q = Question(user_id=user_id, category=a.question.category, source="generated",
                  application_id=s.application_id, job_category=a.question.job_category,
                  text=made.text if generated else suggestion["text"], private_scope=PracticePrivateQuestion())
@@ -827,7 +832,7 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
         taxonomy.assign(q,a.question_classification["question_type"],a.question_classification.get("competency_keys",[]),"rule")
     child = PracticeAnswer(question=q, order_no=a.order_no + 1,
                            **({"question_classification":taxonomy.recapture(a.question_classification,"followup")} if settings.practice_insights_enabled else {}),
-                           coaching=AnswerCoaching(parent_answer_id=a.id, followup_reason=suggestion["reason"]))
+                           coaching=AnswerCoaching(parent_answer_id=a.id, followup_reason=reason))
     for later in s.answers:
         if later.order_no > a.order_no:
             later.order_no += 1

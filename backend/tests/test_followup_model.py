@@ -351,3 +351,44 @@ def test_followup_settings_defaults():
 def test_bad_followup_numbers_name_the_variable(name, value):
     with pytest.raises(ConfigError, match=name):
         Settings({"AUTH_DISABLED": "true", name: value}).check()
+
+
+# ───────── logging (final review) ─────────
+
+def test_app_info_logs_are_enabled_after_importing_the_app():
+    import logging
+
+    import app.main  # noqa: F401
+
+    assert logging.getLogger("app.routers.practice").isEnabledFor(logging.INFO)
+    assert logging.getLogger("app.followup_model").isEnabledFor(logging.INFO)
+
+
+def test_app_info_logs_reach_stderr_once_under_uvicorn_logging():
+    # uvicorn configures its own loggers (not the root logger) before it imports the app
+    code = ("import logging, logging.config, uvicorn.config; "
+            "logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG); "
+            "import app.main; "
+            "logging.getLogger('app.routers.practice').info('followup generated=True reason=None ms=5'); "
+            "logging.getLogger('uvicorn.error').info('uvicorn line')")
+    env = {**os.environ, "FOLLOWUP_MODEL": "off", "STT_PROVIDER": "off", "AUTH_DISABLED": "true", "SUPABASE_URL": ""}
+    done = subprocess.run([sys.executable, "-c", code], cwd=BACKEND, env=env, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stderr.count("followup generated=True reason=None ms=5") == 1, done.stderr
+    assert done.stderr.count("uvicorn line") == 1, done.stderr
+
+
+# ───────── load failure message and library version (final review) ─────────
+
+def test_a_model_that_cannot_be_loaded_suggests_upgrading_the_library(fake_followup):
+    # An older llama.cpp cannot read EXAONE 4 files ("unknown model architecture")
+    fake_followup.load_error = ValueError("Failed to load model from file")
+    assert ask().fallback_reason == "unavailable"
+    error = followup_model.status()["error"]
+    assert "FOLLOWUP_MODEL_REPO" in error and "upgrade llama-cpp-python" in error
+    assert "Failed to load" not in error
+
+
+def test_requirements_need_the_tested_llama_cpp_version():
+    lines = (BACKEND / "requirements-followup.txt").read_text().splitlines()
+    assert "llama-cpp-python>=0.3.36" in lines  # the version tested with EXAONE 4 (followup-model-check.md)
