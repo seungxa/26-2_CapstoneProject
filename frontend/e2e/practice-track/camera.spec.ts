@@ -225,7 +225,9 @@ test("failed recording uploads never publish camera or voice reports", async ({p
  await page.route("**/practice/answers/*/audio",route=>route.fulfill({status:503,json:{detail:"테스트 저장 실패"}}));
  await page.getByRole("button",{name:"Finish Answer"}).click();
  await expect(page.getByRole("alert")).toContainText("테스트 저장 실패");
- await page.getByRole("link",{name:"End Practice"}).click();
+ // The unsaved recording leaves this question unanswered, so End Practice asks first
+ page.once("dialog",d=>void d.accept());
+ await page.getByRole("button",{name:"End Practice"}).click();
  await expect(page.getByRole("heading",{name:"Summary",exact:true})).toBeVisible();
  await expect(cameraBlock(page)).toHaveCount(0);
  await expect(voiceBlock(page)).toHaveCount(0);

@@ -249,6 +249,25 @@ export default function SessionRunner() {
     finally { processing.current = false; setBusy(false); }
   };
 
+  /** End Practice finishes the practice (it can't be continued later), after a confirm when questions are left.
+   * A changed answer in the box is saved first, as Next Question would (not while a recording is still unsaved: that
+   * question counts as unanswered). Blocked while answering or saving */
+  const endPractice = async () => {
+    if (!session || processing.current || phase === "answer" || phase === "uploading") return;
+    const edited = phase === "reviewing" && !uploadFailed && !!answer && draft !== (answer.transcript ?? "");
+    const left = session.answers.filter((a) => !a.recorded_at && !(edited && a.id === answer?.id ? draft : a.transcript)?.trim()).length;
+    if (left > 0 && !confirm(`End practice now? ${left} unanswered ${left === 1 ? "question" : "questions"} will be skipped. You can't continue this practice later.`)) return;
+    processing.current = true;
+    setBusy(true);
+    setErr(null);
+    try {
+      if (edited && answer) updateAnswer(await api.reflect(answer.id, { transcript: draft.trim() || null, input_mode: inputMode === "text" ? "text" : "transcript" }));
+      await api.finishSession(session.id);
+      nav(`/practice/sessions/${session.id}`);
+    } catch (e) { setErr((e as Error).message); }
+    finally { processing.current = false; setBusy(false); }
+  };
+
   if (err && !session) return <p className="err" role="alert">{err}</p>;
   if (!session || consent === "checking") return <p className="muted" role="status">Loading…</p>;
   if (!answer) return <div className="card"><Link to={`/practice/sessions/${id}`}>See Review</Link></div>;
@@ -270,7 +289,7 @@ export default function SessionRunner() {
   return <div className="runner">
     <header className="runner-head">
       <h1>Question {idx + 1} of {session.answers.length}</h1>
-      <Link className="btn" aria-disabled={busy} onClick={event => { if (busy || processing.current) event.preventDefault(); }} to={`/practice/sessions/${id}`}>End Practice</Link>
+      <button disabled={busy || phase === "answer" || phase === "uploading"} onClick={() => void endPractice()}>End Practice</button>
     </header>
     {application && <p className="runner-app small muted" data-testid="runner-application" lang="ko">{application}</p>}
     {focus && <p className="runner-focus small muted" data-testid="runner-focus">Work on: <span lang={/[가-힣]/.test(focus) ? "ko" : undefined}>{focus}</span></p>}

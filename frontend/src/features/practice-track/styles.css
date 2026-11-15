@@ -244,10 +244,9 @@
 .practice-track.practice-track .runner-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .practice-track.practice-track .runner-head h1 { margin: 0; }
 /* On a narrow screen End Practice wraps to its own line, kept at the right */
-.practice-track.practice-track .runner-head > a { margin-left: auto; }
+.practice-track.practice-track .runner-head > button { margin-left: auto; }
 .practice-track.practice-track a.btn { display: inline-block; color: var(--text); }
 .practice-track.practice-track a.btn:hover { text-decoration: none; border-color: var(--accent); }
-.practice-track.practice-track a.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 .practice-track.practice-track .runner-app, .practice-track.practice-track .runner-focus { margin: 4px 0 0; overflow-wrap: anywhere; }
 .practice-track.practice-track .runner-card { margin-top: 16px; }
 .practice-track.practice-track .runner-q { overflow-wrap: anywhere; }

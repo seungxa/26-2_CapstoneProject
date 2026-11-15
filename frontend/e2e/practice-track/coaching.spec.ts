@@ -157,9 +157,13 @@ test("permanent audio error can recover to text and unfinished last answer can r
   await page.getByRole("button", { name: "Finish Answer" }).click();
   await page.getByRole("button", { name: "Type Instead" }).click();
   await page.getByLabel("Your answer", { exact: true }).fill("제가 직접 작성한 대체 답변입니다.");
-  // Save this last answer without finishing, then return through the review UI.
+  // Save this last answer without finishing, leave the runner (End Practice would finish it), then come back
+  // through the review's Finish Practice link.
+  const patched = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/practice/answers/"));
   await page.getByRole("button", { name: "Save Answer" }).click();
-  await page.getByRole("link", { name: "End Practice" }).click();
+  expect((await patched).ok()).toBeTruthy();
+  await page.goto(`/practice/sessions/${session.id}`);
+  expect((await (await request.get(`${API}/practice/sessions/${session.id}`)).json()).finished_at).toBeNull();
   await page.getByRole("link", { name: "Finish Practice" }).click();
   await expect(page.getByLabel("Your answer", { exact: true })).toHaveValue("제가 직접 작성한 대체 답변입니다.");
   await page.getByRole("button", { name: "Finish & Review" }).click();
@@ -190,19 +194,22 @@ test("recorded answer can retry transcription and display returned Korean text",
   await expect(page.getByRole("button", { name: "Ask a Follow-up" })).toBeEnabled();
 });
 
-test('saving an edited answer holds review navigation until the real PATCH completes',async({page,request})=>{
+test('saving an edited answer holds End Practice until the real PATCH completes',async({page,request})=>{
  const {session}=await seed(request);const id=session.answers[0].id;
  await page.goto(`/practice/sessions/${session.id}/run`);await page.getByRole('radio',{name:'Type',exact:true}).check();await page.getByRole('button',{name:'Start Answer',exact:true}).click();
  await page.getByLabel('Your answer',{exact:true}).fill('처음 작성한 답변입니다.');await page.getByRole('button',{name:'Finish Answer',exact:true}).click();
  const edit=page.getByLabel('Your answer',{exact:true});await expect(edit).toBeEnabled();await edit.fill('저장을 마친 뒤 회고에 표시할 새 답변입니다.');
  let release!:()=>void;const barrier=new Promise<void>(resolve=>{release=resolve;});let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});
  await page.route(`**/practice/answers/${id}`,async route=>{if(route.request().method()!=='PATCH')return route.continue();entered();await barrier;await route.continue();});
- const review=page.getByRole('link',{name:'End Practice',exact:true});await page.getByRole('button',{name:'Save Answer',exact:true}).click();await waiting;
+ const end=page.getByRole('button',{name:'End Practice',exact:true});await page.getByRole('button',{name:'Save Answer',exact:true}).click();await waiting;
  try{
-  await expect(review).toHaveAttribute('aria-disabled','true');
-  await review.evaluate(element=>(element as HTMLAnchorElement).click());await expect(page).toHaveURL(/\/run$/);
+  await expect(end).toBeDisabled();
+  await end.evaluate(element=>(element as HTMLButtonElement).click());await expect(page).toHaveURL(/\/run$/);
  }finally{release();}
- await expect(review).toHaveAttribute('aria-disabled','false');await review.click();
- await expect(page.getByRole('link',{name:'Finish Practice',exact:true})).toBeVisible();
- const saved=await(await request.get(`${API}/practice/sessions/${session.id}`)).json();expect(saved.answers[0].transcript).toBe('저장을 마친 뒤 회고에 표시할 새 답변입니다.');
+ // Every question is answered, so End Practice finishes without asking
+ await expect(end).toBeEnabled();await end.click();
+ await expect(page).toHaveURL(new RegExp(`/practice/sessions/${session.id}$`));
+ await expect(page.getByRole('heading',{name:'Summary',exact:true})).toBeVisible();
+ await expect(page.getByRole('link',{name:'Finish Practice',exact:true})).toHaveCount(0);
+ const saved=await(await request.get(`${API}/practice/sessions/${session.id}`)).json();expect(saved.answers[0].transcript).toBe('저장을 마친 뒤 회고에 표시할 새 답변입니다.');expect(saved.finished_at).toBeTruthy();
 });

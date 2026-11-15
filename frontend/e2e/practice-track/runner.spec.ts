@@ -48,7 +48,7 @@ test("the runner shows one question, a timer and one primary action, then the ne
   // Header: Question n of N and End Practice on one line. A phone is too narrow for both at 30px, so there
   // End Practice wraps right under the heading and stays at the right edge
   const title = heading(page, "Question 1 of 2");
-  const end = page.getByRole("link", { name: "End Practice", exact: true });
+  const end = page.getByRole("button", { name: "End Practice", exact: true });
   await expect(title).toBeVisible();
   await expect(end).toBeVisible();
   const [t, e] = [await box(title), await box(end)];
@@ -261,4 +261,40 @@ test("consent stays neutral and usable when the server status can't be read", as
   } finally {
     await request.put(`${API}/practice/settings`, { data: { consent: false } });
   }
+});
+
+test("End Practice finishes the practice, after a confirm when questions are left", async ({ page, request }) => {
+  const { session } = await seed(request, 3);
+  await page.goto(`/practice/sessions/${session.id}/run`);
+  const end = page.getByRole("button", { name: "End Practice", exact: true });
+  await page.getByRole("radio", { name: "Type", exact: true }).check();
+  await startAnswer(page).click();
+  // Blocked while an answer is in progress (as while saving): finish the answer first
+  await expect(end).toBeDisabled();
+  await page.getByLabel("Your answer", { exact: true }).fill("팀 프로젝트에서 일정 관리를 맡아 마감 기한을 지켰습니다.");
+  await page.getByRole("button", { name: "Finish Answer" }).click();
+  await expect(end).toBeEnabled();
+
+  // Cancel: still in the runner on the same question, and the practice stays open
+  const asked: string[] = [];
+  page.once("dialog", (d) => { asked.push(d.message()); void d.dismiss(); });
+  await end.click();
+  await expect.poll(() => asked).toEqual(["End practice now? 2 unanswered questions will be skipped. You can't continue this practice later."]);
+  await expect(page).toHaveURL(/\/run$/);
+  await expect(heading(page, "Question 1 of 3")).toBeVisible();
+  expect((await (await request.get(`${API}/practice/sessions/${session.id}`)).json()).finished_at).toBeNull();
+
+  // Confirm: the practice is finished and the review opens with the answered question checked
+  page.once("dialog", (d) => void d.accept());
+  await end.click();
+  await expect(page).toHaveURL(new RegExp(`/practice/sessions/${session.id}$`));
+  expect((await (await request.get(`${API}/practice/sessions/${session.id}`)).json()).finished_at).toBeTruthy();
+  await expect(page.getByRole("link", { name: /^(Continue|Finish) Practice/ })).toHaveCount(0);
+  const card = page.locator("details.answer-card").first();
+  await card.locator(":scope > summary").click();
+  await expect(card.locator(".coaching-panel")).toBeVisible({ timeout: 15000 });
+  await page.goto("/practice/history");
+  const row = page.getByRole("row").filter({ has: page.locator(`a[href="/practice/sessions/${session.id}"]`) });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByText("In Progress", { exact: true })).toHaveCount(0);
 });
