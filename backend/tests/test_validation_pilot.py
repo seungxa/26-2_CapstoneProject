@@ -12,3 +12,11 @@ def test_pilot_check_uses_fresh_tmp_storage_without_starting_services():
     assert '8013' in result.stdout and '5181' in result.stdout
     path=result.stdout.splitlines()[0].removeprefix('Fresh isolated pilot: ')
     assert not Path(path).exists()
+
+
+def test_pilot_backend_never_loads_or_downloads_the_followup_model():
+    # A 1.6 GB follow-up model next to local STT would change what the human pilot measures
+    script=(Path(__file__).parents[2]/'scripts/practice-track/start-validation-pilot.sh').read_text()
+    backend=script.split('cd "$pilot_repo/backend"',1)[1].split('app.main:app',1)[0]
+    assert 'FOLLOWUP_MODEL=off' in backend.split()
+    assert 'FOLLOWUP_ALLOW_DOWNLOAD=false' in backend.split()

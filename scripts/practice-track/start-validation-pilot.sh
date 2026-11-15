@@ -52,6 +52,7 @@ pilot_auth_pid=$!
   PRACTICE_INSIGHTS_ENABLED=true \
   STT_PROVIDER=local LOCAL_STT_MODEL=base LOCAL_STT_DEVICE=cpu LOCAL_STT_COMPUTE_TYPE=int8 LOCAL_STT_CPU_THREADS=2 \
   LOCAL_STT_ALLOW_DOWNLOAD=false HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 \
+  FOLLOWUP_MODEL=off FOLLOWUP_ALLOW_DOWNLOAD=false \
   CORS_ORIGINS=http://127.0.0.1:5181,http://localhost:5181 \
   "$pilot_repo/backend/.venv/bin/python" -m uvicorn app.main:app --host 127.0.0.1 --port 8013
 ) >"$pilot_root/api.log" 2>&1 &
