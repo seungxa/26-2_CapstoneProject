@@ -74,9 +74,10 @@ class Settings:
         self.local_stt_max_audio_sec: float = _number(env, "LOCAL_STT_MAX_AUDIO_SEC", 900.0, float)
         # 꼬리질문 모델: local(llama.cpp로 이 서버 CPU에서 생성, 외부 전송 없음) | off(고정 문장만). 그 밖의 값은 off로 본다
         self.followup_model: str = (env.get("FOLLOWUP_MODEL") or "local").strip().lower()
-        # 쓸 모델: Hugging Face 저장소와 그 안의 GGUF 파일
-        self.followup_model_repo: str = env.get("FOLLOWUP_MODEL_REPO") or "ssolunar/Kanana-2-1.3b-instruct-Q4_K_M-GGUF"
-        self.followup_model_file: str = env.get("FOLLOWUP_MODEL_FILE") or "Kanana-2-1.3b-instruct-Q4_K_M.gguf"
+        # 쓸 모델: Hugging Face 저장소와 그 안의 GGUF 파일. 기본값은 로컬 시험으로 정했다(비상업 라이선스):
+        # docs/practice-track/followup-model-check.md
+        self.followup_model_repo: str = env.get("FOLLOWUP_MODEL_REPO") or "LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF"
+        self.followup_model_file: str = env.get("FOLLOWUP_MODEL_FILE") or "EXAONE-4.0-1.2B-Q4_K_M.gguf"
         # 모델 캐시 폴더(비우면 Hugging Face 기본 캐시)
         self.followup_model_dir: str = env.get("FOLLOWUP_MODEL_DIR", "")
         self.followup_threads: int = _number(env, "FOLLOWUP_THREADS", min(4, os.cpu_count() or 1), int)
