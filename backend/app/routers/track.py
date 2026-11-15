@@ -71,7 +71,7 @@ def _own_item(db: Session, user_id: str, item_id: str) -> EssayItem:
     return item
 
 
-DUPLICATE_URL = "같은 공고 URL로 저장한 지원 건이 이미 있어요"
+DUPLICATE_URL = "You already saved an application with this posting URL. Open it, or use a different URL."
 
 
 def _find_by_url(db: Session, user_id: str, url: str) -> Application | None:

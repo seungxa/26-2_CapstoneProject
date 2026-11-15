@@ -69,12 +69,28 @@ def test_basic_coaching_guidance_is_english_but_the_follow_up_stays_korean():
     assert "AI" not in coaching.RUBRIC["note"] and "LLM" not in coaching.RUBRIC["note"]
 
 
+def _module_strings(tree: ast.Module) -> dict[str, str]:
+    """Module-level NAME = "..." string constants."""
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = node.value.value
+    return out
+
+
 def _user_strings():
-    """String literals inside HTTPException/STTError/ValueError calls, plus the shared error constants."""
+    """String literals inside HTTPException/STTError/ValueError calls, the module-level string constants those calls
+    name (e.g. HTTPException(409, DUPLICATE_URL)), the strings returned by unavailable_reason(), plus the shared
+    error constants."""
+    trees = {path: ast.parse(path.read_text(encoding="utf-8")) for path in sorted(APP.rglob("*.py"))}
+    everywhere: dict[str, str] = {}
+    for tree in trees.values():
+        everywhere.update(_module_strings(tree))
     found = []
-    for path in sorted(APP.rglob("*.py")):
-        src = path.read_text(encoding="utf-8")
-        tree = ast.parse(src)
+    for path, tree in trees.items():
+        local = _module_strings(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 f = node.func
@@ -83,10 +99,45 @@ def _user_strings():
                     for n in ast.walk(node):
                         if isinstance(n, ast.Constant) and isinstance(n.value, str):
                             found.append((path.name, node.lineno, n.value))
+                        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in (local | everywhere):
+                            found.append((path.name, node.lineno, local.get(n.id, everywhere.get(n.id))))
+            # stt.unavailable_reason() is shown as the 503 detail of Retry Transcription
+            if isinstance(node, ast.FunctionDef) and node.name == "unavailable_reason":
+                for ret in (r for r in ast.walk(node) if isinstance(r, ast.Return) and r.value is not None):
+                    for n in ast.walk(ret.value):
+                        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                            found.append((path.name, ret.lineno, n.value))
             if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {"NEED_CONSENT", "ANSWER_NOT_FOUND"}
                                                     for t in node.targets):
                 found.append((path.name, node.lineno, ast.literal_eval(node.value)))
     return found
+
+
+def test_the_scan_sees_named_constants_and_unavailable_reasons():
+    strings = {s for _, _, s in _user_strings()}
+    from app import stt
+    from app.routers import track
+    assert track.DUPLICATE_URL in strings  # raised as HTTPException(409, DUPLICATE_URL)
+    assert stt._Off().unavailable_reason() in strings
+    assert stt._Local().unavailable_reason() in strings
+
+
+def test_duplicate_posting_url_is_explained_in_english(client):
+    h = {"X-User-Id": "user-english-dup"}
+    body = {"company": "중복공고사", "position": "백엔드", "url": "https://example.com/jobs/english-dup"}
+    assert client.post("/track/applications", json=body, headers=h).status_code == 201
+    r = client.post("/track/applications", json=body, headers=h)
+    assert r.status_code == 409
+    _clean(r.json()["detail"])
+    assert "URL" in r.json()["detail"]
+
+
+def test_transcription_unavailable_reasons_are_english(monkeypatch):
+    from app import stt
+    from app.config import settings
+    for name in ("off", "local", "openai"):
+        monkeypatch.setattr(settings, "stt_provider", name)
+        _clean(stt.unavailable_reason())
 
 
 def test_no_korean_in_user_facing_backend_strings():
