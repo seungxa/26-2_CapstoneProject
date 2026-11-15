@@ -29,6 +29,8 @@ export default function SessionRunner() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const [busy, setBusy] = useState(false);
+  // The follow-up question can take a while (the server's local model writes it): say so while it is being made
+  const [preparingFollowup, setPreparingFollowup] = useState(false);
   const [uploadFailed, setUploadFailed] = useState(false);
   // 녹음 동의: 녹음으로 답할 때만 필요하다(글 답변에는 묻지 않는다)
   const [consent, setConsent] = useState<"checking" | "ok" | "needed">("checking");
@@ -233,6 +235,7 @@ export default function SessionRunner() {
         updateAnswer(await api.reflect(answer.id, { transcript: draft.trim() || null, input_mode: inputMode === "text" ? "text" : "transcript" }));
       }
       if (withFollowup) {
+        setPreparingFollowup(true);
         const updated = await api.followup(answer.id);
         setSession(updated);
         setIdx(updated.answers.findIndex((a) => a.parent_answer_id === answer.id));
@@ -246,7 +249,7 @@ export default function SessionRunner() {
       setConsentFor(null); // 앞 답변의 동의 패널을 다음 질문에 남기지 않는다
       setPhase("ready");
     } catch (e) { setErr((e as Error).message); }
-    finally { processing.current = false; setBusy(false); }
+    finally { processing.current = false; setBusy(false); setPreparingFollowup(false); }
   };
 
   /** End Practice finishes the practice (it can't be continued later), after a confirm when questions are left.
@@ -344,7 +347,7 @@ export default function SessionRunner() {
             pendingAudio.current = null; pendingVideo.current=null; clearVideoSegment(id,answer.id);clearVoiceSegment(id,answer.id); setUploadFailed(false); setInputMode("text"); setErr(null); setConsentFor(null);
           }}>Type Instead</button>}
         </div>}
-        {busy && <p className="small muted" role="status">One moment…</p>}
+        {busy && <p className="small muted" role="status">{preparingFollowup ? "Preparing a follow-up question…" : "One moment…"}</p>}
       </div>}
       {(rec.error || err) && <p className="err runner-error" role="alert">{err || rec.error}</p>}
       <div className="runner-tools">

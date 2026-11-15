@@ -1,4 +1,5 @@
 """② Practice: 질문은행·맞춤 질문, 모의시험 세션, 녹음·전사, 회고, 코칭·디브리프·재연습, 녹음 동의."""
+import logging
 import random
 import secrets
 from copy import deepcopy
@@ -10,7 +11,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from .. import coaching, llm, storage, stt, taxonomy
+from .. import coaching, followup_model, llm, storage, stt, taxonomy
 from ..auth import current_user_id
 from ..config import settings
 from ..db import get_db
@@ -57,6 +58,7 @@ from ..schemas import (
 from ..services import answer_coaching
 
 router = APIRouter(prefix="/practice", tags=["practice"])
+log = logging.getLogger(__name__)
 
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 녹음 파일 크기 상한(예전 OpenAI 전사 API 상한을 그대로 둔다)
 AUDIO_MEDIA_TYPES = {"webm": "audio/webm", "m4a": "audio/mp4", "mp4": "audio/mp4",
@@ -793,9 +795,16 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     if not answer_coaching.current_report(a):
         _report(a, db)
         db.commit()
+    report = answer_coaching.current_report(a)
+    if not report:
+        raise HTTPException(409, "The answer or earlier conversation changed. Run the check again.")
+    session_id, question, transcript = s.id, a.question.text, a.transcript
+    # Ask the local model before taking the session lock (it can take up to FOLLOWUP_TIMEOUT_SEC), with no read
+    # transaction left open meanwhile. Without a usable reply the template question of the report is used.
+    db.commit()
+    made = followup_model.generate(question, transcript, report["followup"].get("focus", ""))
     # A short database write serializes insertion on SQLite and PostgreSQL alike.
     # No external model request is made while holding this session lock.
-    session_id = s.id
     answer_coaching.lock_session(db, session_id)
     db.expire_all()
     a = _own_answer(db, user_id, answer_id)
@@ -808,9 +817,12 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     if not report:
         raise HTTPException(409, "The answer or earlier conversation changed. Run the check again.")
     suggestion = report["followup"]
+    # The model's question is about the answer it read. If that answer was changed and checked again meanwhile,
+    # the current report's template is used instead
+    generated = made.text is not None and (a.question.text, a.transcript) == (question, transcript)
     q = Question(user_id=user_id, category=a.question.category, source="generated",
-                 application_id=s.application_id, job_category=a.question.job_category, text=suggestion["text"],
-                 private_scope=PracticePrivateQuestion())
+                 application_id=s.application_id, job_category=a.question.job_category,
+                 text=made.text if generated else suggestion["text"], private_scope=PracticePrivateQuestion())
     if settings.practice_insights_enabled and a.question_classification:
         taxonomy.assign(q,a.question_classification["question_type"],a.question_classification.get("competency_keys",[]),"rule")
     child = PracticeAnswer(question=q, order_no=a.order_no + 1,
@@ -827,8 +839,10 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
         db.rollback()
         if not db.scalar(select(AnswerCoaching).where(AnswerCoaching.parent_answer_id == answer_id)):
             raise
+    log.info("followup generated=%s reason=%s ms=%d", generated,
+             made.fallback_reason if made.text is None else (None if generated else "answer_changed"), made.elapsed_ms)
     db.expire_all()
-    return _session_out(_own_session(db, user_id, s.id))
+    return _session_out(_own_session(db, user_id, session_id))
 
 
 @router.post("/sessions/{session_id}/redrill", response_model=SessionOut, status_code=201)

@@ -115,6 +115,41 @@ test("the runner shows one question, a timer and one primary action, then the ne
   await expect(primary(page)).toHaveText("Start Answer");
 });
 
+test("asking for a follow-up shows a waiting status", async ({ page, request }) => {
+  const { session } = await seed(request, 2, { followups_enabled: true });
+  // The e2e backend runs with FOLLOWUP_MODEL=off and answers at once: hold the request as a local model would
+  await page.route("**/followup", async (route) => {
+    if (route.request().method() === "POST") await new Promise((done) => setTimeout(done, 1500));
+    await route.continue();
+  });
+  await page.goto(`/practice/sessions/${session.id}/run`);
+  await page.getByRole("radio", { name: "Type", exact: true }).check();
+  await startAnswer(page).click();
+  await page.getByLabel("Your answer", { exact: true }).fill("제가 일정을 나누고 매일 공유했습니다.");
+  await page.getByRole("button", { name: "Finish Answer", exact: true }).click();
+  const ask = page.getByRole("button", { name: "Ask a Follow-up", exact: true });
+  const nextQuestion = page.getByRole("button", { name: "Next Question", exact: true });
+  await ask.click();
+
+  // While the question is being made: a status line, and neither way on can be taken twice
+  const waiting = page.getByRole("status").filter({ hasText: "Preparing a follow-up question…" });
+  await expect(waiting).toBeVisible();
+  await expect(ask).toBeDisabled();
+  await expect(nextQuestion).toBeDisabled();
+  expect(await koreanOutsideKo(page)).toEqual([]);
+  expect(await noHorizontalScroll(page)).toBe(true);
+
+  // Then the follow-up question (Korean content) is the current question
+  await expect(heading(page, "Question 2 of 3")).toBeVisible();
+  const child = (await (await request.get(`${API}/practice/sessions/${session.id}`)).json()).answers[1];
+  expect(child.parent_answer_id).toBe(session.answers[0].id);
+  const question = page.locator(".runner-q");
+  await expect(question).toHaveText(child.question.text);
+  await expect(question).toHaveAttribute("lang", "ko");
+  await expect(waiting).toHaveCount(0);
+  await expect(primary(page)).toHaveText("Start Answer");
+});
+
 test("consent card appears once", async ({ page, request }) => {
   await request.put(`${API}/practice/settings`, { data: { consent: false } });
   const { session } = await seed(request, 2);
