@@ -15,9 +15,9 @@ test('real signed bearer tokens isolate Track and switching users clears old dra
  }});
  await page.goto('/track');await expect(page.getByRole('link',{name:new RegExp(name)})).toBeVisible();
  await seedVoice(page);expect(await hasVoice(page)).toBe(true);
- await page.getByRole('button',{name:'+ 지원 건 추가',exact:true}).click();await page.getByLabel('회사',{exact:true}).fill('A의 저장 전 입력');
+ await page.getByRole('button',{name:'Add Application',exact:true}).click();await page.getByLabel('Company',{exact:true}).fill('A의 저장 전 입력');
  await page.evaluate(async value=>{const path='/src/lib/supabase.ts';const {supabase}=await import(path);const {error}=await supabase.auth.setSession(value);if(error)throw error;},sessionFor(userB));
- await expect(page.getByRole('heading',{name:'지원 관리',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Applications',exact:true})).toBeVisible();
  await expect(page.getByRole('link',{name:new RegExp(name)})).toHaveCount(0);expect(await page.locator('input').evaluateAll(inputs=>inputs.map(input=>input.value))).not.toContain('A의 저장 전 입력');
  expect(await hasVoice(page)).toBe(false);
  await expect.poll(()=>subjects.includes(userB)).toBe(true);expect(subjects).toContain(userA);

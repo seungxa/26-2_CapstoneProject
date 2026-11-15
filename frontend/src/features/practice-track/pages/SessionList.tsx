@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../api";
+import { label, sessionKind } from "../labels";
 import type { SessionSummary, PracticeTaxonomy } from "../types";
+
+const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 export default function SessionList() {
   const nav = useNavigate();
@@ -14,27 +17,32 @@ export default function SessionList() {
     api.sessions().then(setRows).catch((e) => setErr(e.message));
   }, []);
   if (err) return <p className="err">{err}</p>;
-  if (!rows) return <p className="muted">불러오는 중…</p>;
+  if (!rows) return <p className="muted">Loading…</p>;
+  const shown = rows.filter(r=>!competency||r.competency_keys?.includes(competency));
   return (
     <>
-      <h1>연습 기록</h1>
-      {taxonomy?.enabled&&<label>연습 역량 필터<select value={competency} onChange={e=>setCompetency(e.target.value)}><option value="">전체 역량</option>{taxonomy.competencies.map(c=><option value={c.key} key={c.key}>{c.label}</option>)}</select></label>}
+      <h1>History</h1>
+      {taxonomy?.enabled&&rows.length>0&&<select className="history-filter" aria-label="Filter by skill" value={competency} onChange={e=>setCompetency(e.target.value)}><option value="">All Skills</option>{taxonomy.competencies.map(c=><option value={c.key} key={c.key}>{label("competency", c.key)}</option>)}</select>}
       <div className="card table-scroll">
         {rows.length === 0 ? (
-          <p className="muted">아직 연습 기록이 없습니다.</p>
+          <p className="muted">No practice sessions yet.</p>
+        ) : shown.length === 0 ? (
+          <p className="muted">No sessions match.</p>
         ) : (
           <table>
             <thead>
-              <tr><th>제목</th><th>방식</th><th>녹음</th><th>평균 자기평가</th><th>날짜</th></tr>
+              <tr><th>Session</th><th>Recorded</th><th>Avg. Self-Rating</th></tr>
             </thead>
             <tbody>
-              {rows.filter(r=>!competency||r.competency_keys?.includes(competency)).map((r) => (
+              {shown.map((r) => (
                 <tr key={r.id} className="click" onClick={() => nav(`/practice/sessions/${r.id}`)}>
-                  <td><Link to={`/practice/sessions/${r.id}`}>{r.title}</Link>{taxonomy?.enabled&&<div className="row small">{r.competency_keys?.map(k=><span className="chip" key={k}>{taxonomy.competencies.find(c=>c.key===k)?.label??k}</span>)}{!!r.classification_missing_count&&<span className="muted">분류 없음 {r.classification_missing_count}개</span>}</div>}{!r.finished_at && <span className="chip" style={{ marginLeft: 6 }}>진행 중</span>}</td>
-                  <td>{r.mode === "mock" ? "모의시험" : "자유 연습"}</td>
+                  <td>
+                    <Link to={`/practice/sessions/${r.id}`}>{sessionKind(r)} · {when(r.created_at)}</Link>
+                    {!r.finished_at && <span className="chip" style={{ marginLeft: 6 }}>In Progress</span>}
+                    {taxonomy?.enabled&&(!!r.competency_keys?.length||!!r.classification_missing_count)&&<div className="row small">{r.competency_keys?.map(k=><span className="chip" key={k}>{label("competency", k)}</span>)}{!!r.classification_missing_count&&<span className="muted">{r.classification_missing_count} untagged</span>}</div>}
+                  </td>
                   <td>{r.recorded_count} / {r.answer_count}</td>
                   <td>{r.avg_rating != null ? `★ ${r.avg_rating.toFixed(1)}` : "–"}</td>
-                  <td className="muted">{new Date(r.created_at).toLocaleDateString("ko-KR")}</td>
                 </tr>
               ))}
             </tbody>

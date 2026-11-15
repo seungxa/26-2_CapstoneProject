@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { ApplicationDetail, EssayItem } from "../../../src/features/practice-track/types";
 import { mergeApplicationDetail, mergeEssayItem } from "../../../src/features/practice-track/components/track/state";
+import { dayLabel, updatedLabel } from "../../../src/features/practice-track/components/track/format";
 
 const version = (number: number, submitted = false) => ({ id: `v${number}`, version_no: number, content: "같은 답변", char_count: 5, source: "web" as const, is_submitted: submitted, created_at: "2026-11-01" });
 const essay = (versions: number, revision: number, submitted: number | null): EssayItem => ({
@@ -27,4 +28,18 @@ test('full snapshots preserve new local items but explicit deletion removes them
   const current = { ...old, essay_items: [...old.essay_items, added] };
   expect(mergeApplicationDetail(current, old, new Set()).essay_items.map((item) => item.id)).toEqual(['essay', 'new-essay']);
   expect(mergeApplicationDetail(current, old, new Set(['new-essay'])).essay_items.map((item) => item.id)).toEqual(['essay']);
+});
+
+test('stored dates show in English without shifting the calendar day', () => {
+  // "YYYY-MM-DD" is a calendar day: parsing it as UTC would show the day before west of UTC
+  expect(dayLabel('2026-11-04')).toBe('Nov 4, 2026');
+  expect(dayLabel('2026-01-31')).toBe('Jan 31, 2026');
+  expect(dayLabel(null)).toBe('');
+  expect(dayLabel('not a date')).toBe('not a date');
+});
+
+test('the list shows the update day, with the year only when it is not this year', () => {
+  const now = new Date(2026, 10, 15, 12);
+  expect(updatedLabel(new Date(2026, 10, 12, 9).toISOString(), now)).toBe('Nov 12');
+  expect(updatedLabel(new Date(2025, 11, 30, 9).toISOString(), now)).toBe('Dec 30, 2025');
 });

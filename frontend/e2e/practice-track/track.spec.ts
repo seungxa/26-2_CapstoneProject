@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { API } from "./env";
 
 // 지원 관리 화면의 비동기 흐름(저장 중 입력, 응답 순서, 실패 처리). 화면 크기와 무관해 desktop에서만 돈다
@@ -15,22 +15,54 @@ function hold() {
   return { gate, release: () => release() };
 }
 
+const details = (page: Page) => page.getByRole("region", { name: "Details", exact: true });
+const statusChip = (page: Page) => page.getByTestId("application-status");
+const editResult = (page: Page) => page.getByRole("group", { name: "Edit Result", exact: true });
+
+test("the list shows English names while filters send the stored values", async ({ page, request }) => {
+  const tok = `목록${Date.now()}`;
+  const app = await newApp(request, `${tok} 회사`);
+  await request.patch(`${API}/track/applications/${app.id}`, { data: { stage: "1차면접" } });
+  await newApp(request, `${tok} 다른회사`);
+  await page.goto("/track");
+  await expect(page.getByRole("heading", { level: 1, name: "Applications", exact: true })).toBeVisible();
+  await page.getByPlaceholder("Search company or role").fill(tok);
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  const row = page.getByRole("row").filter({ hasText: `${tok} 회사` });
+  await expect(row.getByRole("cell")).toHaveText([`${tok} 회사`, "백엔드", "1st Interview", "In Progress", /^[A-Z][a-z]{2} \d{1,2}$/]);
+  // The status filter is visible; stage and job are folded under Filters
+  const status = page.getByRole("combobox", { name: "Filter by status", exact: true });
+  await expect(status.locator("option")).toHaveText(["All Statuses", "In Progress", "Passed", "Rejected", "On Hold"]);
+  const stage = page.getByRole("combobox", { name: "Filter by stage", exact: true });
+  await expect(stage).toBeHidden();
+  await page.getByText("Filters", { exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Filter by job", exact: true }).locator("option")).toHaveText(
+    ["All Jobs", "Engineering", "Product", "Marketing", "Data", "Design", "Other"]);
+  const filtered = page.waitForRequest((r) => new URL(r.url()).searchParams.get("stage") === "1차면접");
+  await stage.selectOption("1차면접");
+  await filtered;
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("summary", { hasText: "Filters" })).toHaveText("Filters (1)");
+  await status.selectOption("합격");
+  await expect(page.getByText("No applications match.", { exact: true })).toBeVisible();
+});
+
 test("typing while a version is saving keeps the newer draft", async ({ page, request }) => {
   const app = await newApp(request, `자소서저장 ${Date.now()}`);
   await request.post(`${API}/track/applications/${app.id}/essays`, { data: { question_text: "지원 동기", content: "첫 버전" } });
   const { gate, release } = hold();
   await page.route("**/track/essays/*/versions", async (route) => { await gate; await route.continue(); });
   await page.goto(`/track/${app.id}`);
-  const box = page.getByPlaceholder("답변을 입력하세요");
+  const box = page.getByPlaceholder("Write your answer");
   await box.fill("A");
   const saved = page.waitForResponse((r) => r.url().includes("/versions") && r.request().method() === "POST");
-  await page.getByRole("button", { name: "새 버전 저장" }).click();
+  await page.getByRole("button", { name: "Save Version", exact: true }).click();
   await box.fill("AB"); // 저장 응답이 오기 전에 이어서 입력한다
   release();
   await saved;
   await expect(page.locator(".version-list button")).toHaveCount(2);
   await expect(box).toHaveValue("AB");
-  await expect(page.getByRole("button", { name: "새 버전 저장" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Version", exact: true })).toBeEnabled();
 });
 
 test("restoring an old version puts it in the editor", async ({ page, request }) => {
@@ -40,9 +72,9 @@ test("restoring an old version puts it in the editor", async ({ page, request })
   await request.post(`${API}/track/essays/${item.id}/versions`, { data: { content: "둘째 버전" } });
   await page.goto(`/track/${app.id}`);
   await page.locator(".version-list button", { hasText: "v1" }).click();
-  await page.getByRole("button", { name: "이 버전으로 되돌리기" }).click();
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.locator(".version-list button")).toHaveCount(3);
-  await expect(page.getByPlaceholder("답변을 입력하세요")).toHaveValue("첫 버전");
+  await expect(page.getByPlaceholder("Write your answer")).toHaveValue("첫 버전");
 });
 
 test("an older filter response never replaces the newer one", async ({ page, request }) => {
@@ -56,7 +88,7 @@ test("an older filter response never replaces the newer one", async ({ page, req
     await route.continue();
   });
   await page.goto("/track");
-  const search = page.getByPlaceholder("회사·직무 검색");
+  const search = page.getByPlaceholder("Search company or role");
   const slow = page.waitForResponse((r) => isList(new URL(r.url()), tok));
   await search.fill(tok);
   await page.waitForRequest((r) => isList(new URL(r.url()), tok));
@@ -68,22 +100,46 @@ test("an older filter response never replaces the newer one", async ({ page, req
   await expect(page.locator("tbody tr")).toContainText(`${tok}가나다`);
 });
 
+test("the detail header shows company, role, stage and status in one line", async ({ page, request }) => {
+  const app = await newApp(request, `머리글 ${Date.now()}`);
+  await request.patch(`${API}/track/applications/${app.id}`, { data: { stage: "2차면접", status: "보류" } });
+  await page.goto(`/track/${app.id}`);
+  const head = page.locator(".app-head");
+  await expect(head.getByRole("heading", { level: 1 })).toHaveText(`${app.company} · 백엔드`);
+  await expect(head.getByRole("heading", { level: 1 })).toHaveAttribute("lang", "ko");
+  await expect(head.getByTestId("application-stage")).toHaveText("2nd Interview");
+  await expect(head.getByTestId("application-status")).toHaveText("On Hold");
+  await expect(page.getByRole("button", { name: "Practice for This Application", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Details", "Stages", "Essays"]);
+  // Details are read first; the form opens with Edit and closes with Cancel
+  await expect(details(page).getByRole("textbox")).toHaveCount(0);
+  await expect(details(page)).toContainText("Engineering");
+  await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(details(page).getByRole("combobox", { name: "Stage", exact: true })).toHaveValue("2차면접");
+  await expect(details(page).getByRole("combobox", { name: "Stage", exact: true }).locator("option:checked")).toHaveText("2nd Interview");
+  await details(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(details(page).getByRole("textbox")).toHaveCount(0);
+  await expect(page.getByText("No results yet.", { exact: true })).toBeVisible();
+});
+
 test("a failed change shows the server message and preserves the unsaved draft", async ({ page, request }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const app = await newApp(request, `실패처리 ${Date.now()}`);
   await page.route(`**/track/applications/${app.id}`, (route) => route.request().method() === "PATCH"
-    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "저장 실패(테스트)" }) })
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Couldn't save (test)." }) })
     : route.continue());
   await page.goto(`/track/${app.id}`);
-  const status = page.locator("label", { hasText: "상태" }).locator("select");
+  await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+  const status = details(page).getByRole("combobox", { name: "Status", exact: true });
   await status.selectOption("보류");
-  await page.getByRole("button", { name: "기본 정보 저장", exact: true }).click();
-  await expect(page.getByText("저장 실패(테스트)")).toBeVisible();
+  await expect(status.locator("option:checked")).toHaveText("On Hold");
+  await details(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect(details(page).getByRole("alert")).toHaveText("Couldn't save (test).");
   await expect(status).toHaveValue("보류");
-  await expect(page.locator("h1 + .chip")).toHaveText("진행중");
+  await expect(statusChip(page)).toHaveText("In Progress");
   // 페이지 전체가 오류 화면으로 바뀌지 않고 계속 쓸 수 있다
-  await expect(page.getByRole("heading", { name: "기본 정보" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -96,11 +152,11 @@ test("parallel saves keep all three essay responses", async ({ page, request }) 
   let count = 0;
   await page.route("**/track/essays/*/versions", async (route) => { const n = ++count; await (n === 1 ? one.gate : two.gate); await route.continue(); });
   await page.goto(`/track/${app.id}`);
-  const boxes = page.getByPlaceholder("답변을 입력하세요");
+  const boxes = page.getByPlaceholder("Write your answer");
   await boxes.nth(0).fill("첫 문항 수정");
   await boxes.nth(1).fill("둘째 문항 수정");
-  await page.getByRole("button", { name: "새 버전 저장", exact: true }).nth(0).click();
-  await page.getByRole("button", { name: "새 버전 저장", exact: true }).nth(1).click();
+  await page.getByRole("button", { name: "Save Version", exact: true }).nth(0).click();
+  await page.getByRole("button", { name: "Save Version", exact: true }).nth(1).click();
   two.release();
   await expect(page.locator(".version-list").nth(1).getByRole("button")).toHaveCount(2);
   one.release();
@@ -115,15 +171,16 @@ test("basic info uses explicit save and preserves the draft on failure", async (
   await page.route(`**/track/applications/${app.id}`, (route) => {
     if (route.request().method() !== "PATCH") return route.continue();
     patches++;
-    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "기본 정보 저장 실패" }) });
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Couldn't save the details." }) });
   });
   await page.goto(`/track/${app.id}`);
-  await page.getByLabel("회사", { exact: true }).fill("계속 작성할 회사명");
-  await page.getByLabel("직무", { exact: true }).click();
+  await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Company", { exact: true }).fill("계속 작성할 회사명");
+  await page.getByLabel("Role", { exact: true }).click();
   expect(patches).toBe(0);
-  await page.getByRole("button", { name: "기본 정보 저장", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("기본 정보 저장 실패");
-  await expect(page.getByLabel("회사", { exact: true })).toHaveValue("계속 작성할 회사명");
+  await details(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Couldn't save the details.");
+  await expect(page.getByLabel("Company", { exact: true })).toHaveValue("계속 작성할 회사명");
 });
 
 test("old version submission is explicit and restore creates a draft", async ({ page, request }) => {
@@ -132,12 +189,12 @@ test("old version submission is explicit and restore creates a draft", async ({ 
   await request.post(`${API}/track/essays/${item.id}/versions`, { data: { content: "작성 중인 내용" } });
   await page.goto(`/track/${app.id}`);
   await page.locator(".version-list button", { hasText: "v1" }).click();
-  await page.getByRole("button", { name: "이 버전을 제출본으로 확인" }).click();
-  await expect(page.getByText("최근 확인한 제출본: v1")).toBeVisible();
+  await page.getByRole("button", { name: "Mark as Submitted", exact: true }).click();
+  await expect(page.getByText("Submitted: v1", { exact: true })).toBeVisible();
   await page.locator(".version-list button", { hasText: "v1" }).click();
-  await page.getByRole("button", { name: "이 버전으로 되돌리기" }).click();
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.locator(".version-list button")).toHaveCount(3);
-  await expect(page.getByText("최근 확인한 제출본: v1")).toBeVisible();
+  await expect(page.getByText("Submitted: v1", { exact: true })).toBeVisible();
 });
 
 test("event editing and deletion keep manual state until explicit recalculation", async ({ page, request }) => {
@@ -145,18 +202,21 @@ test("event editing and deletion keep manual state until explicit recalculation"
   await request.post(`${API}/track/applications/${app.id}/events`, { data: { stage: "서류", result: "합격", event_date: "2026-11-01", memo: "처음 기록" } });
   await request.patch(`${API}/track/applications/${app.id}`, { data: { stage: "1차면접", status: "보류" } });
   await page.goto(`/track/${app.id}`);
-  await expect(page.getByText("수동으로 정한 단계와 상태를 유지합니다.", { exact: false })).toBeVisible();
-  await page.getByRole('button', { name: '수정', exact: true }).click();
-  await page.getByLabel('수정 메모').fill('내용 수정');
-  await page.getByLabel('수정 결과').selectOption('불합격');
-  await page.getByRole('button', { name: '기록 수정 저장' }).click();
-  await expect(page.getByText('내용 수정', { exact: true })).toBeVisible();
-  await expect(page.locator('h1 + .chip')).toHaveText('보류');
-  await page.getByRole('button', { name: '기록으로 현재 상태 계산' }).click();
-  await expect(page.locator('h1 + .chip')).toHaveText('불합격');
-  await expect(page.getByRole('combobox', { name: '상태', exact: true })).toHaveValue('불합격');
-  await page.getByRole('button', { name: '서류 2026-11-01 기록 삭제' }).click();
-  await expect(page.locator('h1 + .chip')).toHaveText('진행중');
+  await expect(page.getByText("Set by hand.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Edit Application Nov 1, 2026", exact: true }).click();
+  await editResult(page).getByLabel("Note", { exact: true }).fill("내용 수정");
+  await editResult(page).getByRole("combobox", { name: "Result", exact: true }).selectOption("불합격");
+  await editResult(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("내용 수정", { exact: true })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "내용 수정" }).locator(".chip")).toHaveText("Rejected");
+  await expect(statusChip(page)).toHaveText("On Hold");
+  await page.getByRole("button", { name: "Follow Results", exact: true }).click();
+  await expect(statusChip(page)).toHaveText("Rejected");
+  await expect(page.getByRole("button", { name: "Follow Results", exact: true })).toHaveCount(0);
+  await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(details(page).getByRole("combobox", { name: "Status", exact: true })).toHaveValue("불합격");
+  await page.getByRole("button", { name: "Delete Application Nov 1, 2026", exact: true }).click();
+  await expect(statusChip(page)).toHaveText("In Progress");
 });
 
 test("detail ignores an older id response after client navigation", async ({ page, request }) => {
@@ -209,24 +269,25 @@ for (const action of ["basic info", "event", "reload"] as const) {
         await route.fulfill({ response, body });
       });
       if (action === "basic info") {
-        await page.getByLabel("회사", { exact: true }).fill(`${app.company} 수정`);
-        await page.getByRole("button", { name: "기본 정보 저장", exact: true }).click();
+        await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+        await page.getByLabel("Company", { exact: true }).fill(`${app.company} 수정`);
+        await details(page).getByRole("button", { name: "Save", exact: true }).click();
       } else if (action === "event") {
-        await page.getByRole("button", { name: "기록", exact: true }).click();
+        await page.getByRole("button", { name: "Add Result", exact: true }).click();
       } else {
-        await page.getByRole("button", { name: "수정", exact: true }).click();
-        await page.getByLabel("수정 메모").fill(`수정 ${eventId}`);
-        await page.getByRole("button", { name: "기록 수정 저장" }).click();
+        await page.getByRole("button", { name: "Edit Application Nov 1, 2026", exact: true }).click();
+        await editResult(page).getByLabel("Note", { exact: true }).fill(`수정 ${eventId}`);
+        await editResult(page).getByRole("button", { name: "Save", exact: true }).click();
       }
       await capturedResponse;
       if (essayChange === "version") {
-        await page.getByPlaceholder("답변을 입력하세요").fill("더 최신인 답변");
-        await page.getByRole("button", { name: "새 버전 저장", exact: true }).click();
+        await page.getByPlaceholder("Write your answer").fill("더 최신인 답변");
+        await page.getByRole("button", { name: "Save Version", exact: true }).click();
         await expect(page.locator(".version-list button")).toHaveCount(2);
       } else {
         await page.locator(".version-list button", { hasText: "v1" }).click();
-        await page.getByRole("button", { name: "이 버전을 제출본으로 확인" }).click();
-        await expect(page.getByText("최근 확인한 제출본: v1")).toBeVisible();
+        await page.getByRole("button", { name: "Mark as Submitted", exact: true }).click();
+        await expect(page.getByText("Submitted: v1", { exact: true })).toBeVisible();
       }
       const lateResponse = page.waitForResponse((response) => new URL(response.url()).pathname === path && response.request().method() === method);
       delayed.release();
@@ -234,9 +295,9 @@ for (const action of ["basic info", "event", "reload"] as const) {
       if (action === "basic info") await expect(page.getByRole("heading", { name: `${app.company} 수정 · 백엔드` })).toBeVisible();
       if (essayChange === "version") {
         await expect(page.locator(".version-list button")).toHaveCount(2);
-        await expect(page.getByPlaceholder("답변을 입력하세요")).toHaveValue("더 최신인 답변");
+        await expect(page.getByPlaceholder("Write your answer")).toHaveValue("더 최신인 답변");
       } else {
-        await expect(page.getByText("최근 확인한 제출본: v1")).toBeVisible();
+        await expect(page.getByText("Submitted: v1", { exact: true })).toBeVisible();
         await expect(page.locator(".version-list button")).toHaveCount(2);
       }
     });
@@ -253,18 +314,23 @@ test("manually edited legacy application still asks for its unknown event baseli
   let resetBody: Record<string, string> | undefined;
   await page.route(`**/track/applications/${app.id}/state-from-events`, async (route) => {
     resetBody = route.request().postDataJSON();
-    if (!resetBody?.baseline_stage || !resetBody?.baseline_status) return route.fulfill({ status: 422, json: { detail: "기록 전 기준이 필요합니다" } });
+    if (!resetBody?.baseline_stage || !resetBody?.baseline_status) return route.fulfill({ status: 422, json: { detail: "Pick the stage and status before these results." } });
     detail = { ...detail, stage: resetBody.baseline_stage, status: resetBody.baseline_status, state_source: "events", state_requires_baseline: false };
     await route.fulfill({ json: detail });
   });
   await page.goto(`/track/${app.id}`);
-  await page.getByRole("combobox", { name: "상태", exact: true }).selectOption("보류");
-  await page.getByRole("button", { name: "기본 정보 저장", exact: true }).click();
-  await expect(page.locator("h1 + .chip")).toHaveText("보류");
-  await expect(page.getByRole("combobox", { name: "기록 전 기준 단계", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "기록 전 기준 단계", exact: true }).selectOption("인적성");
-  await page.getByRole("combobox", { name: "기록 전 기준 상태", exact: true }).selectOption("진행중");
-  await page.getByRole("button", { name: "기록으로 현재 상태 계산" }).click();
-  await expect(page.locator("h1 + .chip")).toHaveText("진행중");
+  await expect(page.getByText("Kept from older data.", { exact: false })).toBeVisible();
+  await details(page).getByRole("button", { name: "Edit", exact: true }).click();
+  await details(page).getByRole("combobox", { name: "Status", exact: true }).selectOption("보류");
+  await details(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect(statusChip(page)).toHaveText("On Hold");
+  await expect(page.getByText("Set by hand.", { exact: false })).toBeVisible();
+  const baselineStage = page.getByRole("combobox", { name: "Stage before these results", exact: true });
+  await expect(baselineStage).toBeVisible();
+  await expect(baselineStage.locator("option")).toHaveText(["Application", "Aptitude Test", "1st Interview", "2nd Interview", "Final"]);
+  await baselineStage.selectOption("인적성");
+  await page.getByRole("combobox", { name: "Status before these results", exact: true }).selectOption("진행중");
+  await page.getByRole("button", { name: "Follow Results", exact: true }).click();
+  await expect(statusChip(page)).toHaveText("In Progress");
   expect(resetBody).toEqual({ baseline_stage: "인적성", baseline_status: "진행중" });
 });

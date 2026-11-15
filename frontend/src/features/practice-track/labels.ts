@@ -72,3 +72,9 @@ export function reasonLabel(reason: string): string {
 
 /** lang for stored text that may be Korean (old records) or English (new app sentences). */
 export const langOf = (text: string | null | undefined): "ko" | undefined => (/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(text ?? "") ? "ko" : undefined);
+
+/** History names a session by its kind. Stored titles stay Korean ("자유 연습 …", "모의 면접 …", "보완 연습 · …"). */
+export function sessionKind(session: { mode: string; title: string }): string {
+  if (session.title.startsWith("보완 연습")) return "Practice Again";
+  return session.mode === "mock" ? "Mock Interview" : "Practice";
+}

@@ -325,3 +325,53 @@
 .practice-track.practice-track .answer-actions { margin-top: 16px; }
 .practice-track.practice-track .validation-tools { margin-top: 10px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; }
 .practice-track.practice-track .status-grid tr > :first-child { white-space: nowrap; }
+
+/* Track: list with folded filters, a one-line detail header, read-first Details */
+.practice-track.practice-track .nowrap { white-space: nowrap; }
+.practice-track.practice-track .page-head { margin-bottom: 16px; }
+.practice-track.practice-track .page-head h1 { margin: 0; }
+.practice-track.practice-track .list-tools { align-items: flex-start; margin-bottom: 12px; }
+.practice-track.practice-track .list-search { flex: 1 1 200px; min-width: 0; }
+.practice-track.practice-track .list-filters { margin: 0; padding-top: 7px; }
+.practice-track.practice-track .list-filters > summary { margin: 0; color: var(--text-2); font-weight: 400; }
+.practice-track.practice-track .list-filters > .row { margin-top: 8px; }
+.practice-track.practice-track .history-filter { margin-bottom: 12px; max-width: 100%; }
+.practice-track.practice-track .app-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.practice-track.practice-track .app-head h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.practice-track.practice-track .app-head .app-practice { margin-left: auto; }
+.practice-track.practice-track .app-head + .stage-track { margin-bottom: 16px; }
+.practice-track.practice-track .card-head { margin-bottom: 12px; }
+.practice-track.practice-track .card-head h2 { margin: 0; }
+.practice-track.practice-track .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 14px; }
+.practice-track.practice-track .facts dt { color: var(--text-2); font-size: 13px; }
+.practice-track.practice-track .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.practice-track.practice-track .details-form { display: grid; gap: 10px; min-width: 0; }
+.practice-track.practice-track .details-form :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+.practice-track.practice-track .details-form p { margin: 0; }
+.practice-track.practice-track .row-actions { white-space: nowrap; text-align: right; }
+.practice-track.practice-track .row-actions button + button { margin-left: 4px; }
+.practice-track.practice-track fieldset.event-edit { min-width: 0; margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
+.practice-track.practice-track .event-edit legend { padding: 0 4px; font-weight: 700; color: var(--text); }
+.practice-track.practice-track .event-edit :is(input, select) { min-width: 0; max-width: 100%; }
+.practice-track.practice-track .event-add { margin-top: 14px; }
+.practice-track.practice-track .event-add > input[aria-label="New result note"] { flex: 1 1 160px; min-width: 0; }
+.practice-track.practice-track .state-mode { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.practice-track.practice-track .state-mode p { margin: 0 0 8px; }
+.practice-track.practice-track .state-mode > .row { margin-bottom: 10px; }
+.practice-track.practice-track .essays > h2 { margin-top: 8px; }
+.practice-track.practice-track .essay-card h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.practice-track.practice-track .essay-card > p { margin: 6px 0 0; }
+.practice-track.practice-track .essay-body { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+.practice-track.practice-track .essay-body .version-list { flex: 0 1 150px; }
+.practice-track.practice-track .essay-edit { flex: 1 1 240px; min-width: 0; }
+.practice-track.practice-track .essay-edit .fold { margin: 0 0 10px; }
+.practice-track.practice-track .char-limit { width: 8em; }
+.practice-track.practice-track .stats-funnel .bar-row { grid-template-columns: minmax(6.5em, 8.5em) minmax(0, 1fr) auto; }
+.practice-track.practice-track .stats-funnel { gap: 8px; }
+.practice-track.practice-track .event-main { width: 100%; min-width: 0; }
+.practice-track.practice-track .event-note { margin-top: 4px; color: var(--text-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+/* Korean company, role and question text wraps between words, not inside them */
+.practice-track.practice-track .track-table td, .practice-track.practice-track :is(.app-head h1, .essay-card h3, .event-note)[lang="ko"] { word-break: keep-all; }
+.practice-track.practice-track .track-table .chip { white-space: nowrap; }
+.practice-track.practice-track .event-date { white-space: nowrap; }
+@media (max-width: 540px) { .practice-track.practice-track .event-date { white-space: normal; } }

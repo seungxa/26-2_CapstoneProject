@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../api";
-import { StageTrack } from "../components/track/StageTrack";
+import { updatedLabel } from "../components/track/format";
 import { StatusChip } from "../components/track/StatusChip";
+import { label, langOf } from "../labels";
 import { JOB_CATEGORIES, STAGES, STATUSES, type Application } from "../types";
 
 const EMPTY = { company: "", position: "", job_category: "개발", url: "", applied_at: "" };
+// Option values stay the stored (Korean) values the API and the extension use; only the text is English
+const jobOptions = JOB_CATEGORIES.map((j) => <option key={j} value={j}>{label("job", j)}</option>);
 
 export default function TrackList() {
   const nav = useNavigate();
@@ -16,6 +19,7 @@ export default function TrackList() {
   const creating = useRef(false);
   const [pending, setPending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [createErr, setCreateErr] = useState<string | null>(null);
 
   // 필터를 빨리 바꾸면 응답 순서가 뒤바뀔 수 있다: 가장 나중에 보낸 조회의 응답만 반영한다
   const latest = useRef(0);
@@ -34,7 +38,7 @@ export default function TrackList() {
     if (creating.current) return;
     creating.current = true;
     setPending(true);
-    setErr(null);
+    setCreateErr(null);
     try {
       const a = await api.createApplication({
         company: form.company,
@@ -45,73 +49,79 @@ export default function TrackList() {
       });
       nav(`/track/${a.id}`);
     } catch (e) {
-      setErr((e as Error).message);
+      setCreateErr((e as Error).message);
     } finally {
       creating.current = false;
       setPending(false);
     }
   };
+  const cancel = () => { setOpen(false); setForm(EMPTY); setCreateErr(null); };
+
+  const folded = (f.stage ? 1 : 0) + (f.job_category ? 1 : 0);
+  const filtered = !!(f.q || f.status || folded);
 
   return (
     <>
-      <div className="row">
-        <h1 className="grow" style={{ margin: 0 }}>지원 관리</h1>
-        <button className="primary" onClick={() => setOpen(!open)}>+ 지원 건 추가</button>
+      <div className="row page-head">
+        <h1 className="grow">Applications</h1>
+        <button className="primary" aria-expanded={open} onClick={() => (open ? cancel() : setOpen(true))}><span aria-hidden="true">+ </span>Add Application</button>
       </div>
-      <div className="spacer" />
       {open && (
-        <section className="card">
+        <section className="card" aria-label="New application">
           <div className="row">
-            <label className="grow">회사<input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} /></label>
-            <label className="grow">직무(포지션)<input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} /></label>
-            <label>직무 분류
-              <select value={form.job_category} onChange={(e) => setForm({ ...form, job_category: e.target.value })}>
-                {JOB_CATEGORIES.map((j) => <option key={j}>{j}</option>)}
-              </select>
+            <label className="grow">Company<input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} /></label>
+            <label className="grow">Role<input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} /></label>
+            <label>Job
+              <select value={form.job_category} onChange={(e) => setForm({ ...form, job_category: e.target.value })}>{jobOptions}</select>
             </label>
-            <label>지원일<input type="date" value={form.applied_at} onChange={(e) => setForm({ ...form, applied_at: e.target.value })} /></label>
+            <label>Date applied<input type="date" value={form.applied_at} onChange={(e) => setForm({ ...form, applied_at: e.target.value })} /></label>
           </div>
           <div className="spacer" />
-          <div className="row">
-            <label className="grow">채용 공고 URL<input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} /></label>
-            <button className="primary" disabled={pending || !form.company.trim() || !form.position.trim()} onClick={create}>저장</button>
+          <div className="row bottom">
+            <label className="grow">Job posting URL<input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} /></label>
+            <button className="primary" disabled={pending || !form.company.trim() || !form.position.trim()} onClick={create}>Save</button>
+            <button onClick={cancel}>Cancel</button>
           </div>
+          {createErr && <p className="err" role="alert">{createErr}</p>}
         </section>
       )}
-      {err && <p className="err" role="alert">{err}</p>}
       <section className="card">
-        <div className="row">
-          <input aria-label="회사·직무 검색" className="grow" placeholder="회사·직무 검색" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
-          <select aria-label="상태 필터" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
-            <option value="">전체 상태</option>
-            {STATUSES.map((s) => <option key={s}>{s}</option>)}
+        <div className="row list-tools">
+          <input type="search" className="list-search" aria-label="Search company or role" placeholder="Search company or role" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+          <select aria-label="Filter by status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            <option value="">All Statuses</option>
+            {STATUSES.map((s) => <option key={s} value={s}>{label("status", s)}</option>)}
           </select>
-          <select aria-label="단계 필터" value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}>
-            <option value="">전체 단계</option>
-            {STAGES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <select aria-label="직무 필터" value={f.job_category} onChange={(e) => setF({ ...f, job_category: e.target.value })}>
-            <option value="">전체 직무</option>
-            {JOB_CATEGORIES.map((j) => <option key={j}>{j}</option>)}
-          </select>
+          <details className="fold list-filters">
+            <summary>Filters{folded ? ` (${folded})` : ""}</summary>
+            <div className="row">
+              <select aria-label="Filter by stage" value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}>
+                <option value="">All Stages</option>
+                {STAGES.map((s) => <option key={s} value={s}>{label("stage", s)}</option>)}
+              </select>
+              <select aria-label="Filter by job" value={f.job_category} onChange={(e) => setF({ ...f, job_category: e.target.value })}>
+                <option value="">All Jobs</option>
+                {jobOptions}
+              </select>
+            </div>
+          </details>
         </div>
-        <div className="spacer" />
+        {err && <p className="err" role="alert">{err}</p>}
         {rows.length === 0 ? (
-          <p className="muted">지원 건이 없습니다. 직접 추가하거나 크롬 확장에서 지원서를 제출하면 자동으로 저장됩니다.</p>
+          <p className="muted">{filtered ? "No applications match." : "No applications yet. Add one, or save a posting with the Chrome extension."}</p>
         ) : (
-          <div className="table-scroll"><table>
+          <div className="table-scroll"><table className="track-table">
             <thead>
-              <tr><th>회사</th><th>직무</th><th>분류</th><th style={{ width: 160 }}>진행 단계</th><th>상태</th><th>지원일</th></tr>
+              <tr><th>Company</th><th>Role</th><th>Stage</th><th>Status</th><th>Updated</th></tr>
             </thead>
             <tbody>
               {rows.map((a) => (
                 <tr key={a.id} className="click" onClick={() => nav(`/track/${a.id}`)}>
-                  <td><Link to={`/track/${a.id}`}>{a.company}</Link>{a.source === "extension" && <span className="chip" style={{ marginLeft: 6 }}>확장</span>}</td>
-                  <td>{a.position}</td>
-                  <td>{a.job_category}</td>
-                  <td><StageTrack a={a} /><div className="small muted">{a.stage}</div></td>
+                  <td><Link to={`/track/${a.id}`} lang={langOf(a.company)}>{a.company}</Link>{a.source === "extension" && <span className="chip" style={{ marginLeft: 6 }}>Extension</span>}</td>
+                  <td lang={langOf(a.position)}>{a.position}</td>
+                  <td>{label("stage", a.stage)}</td>
                   <td><StatusChip status={a.status} /></td>
-                  <td className="muted">{a.applied_at ?? "–"}</td>
+                  <td className="muted nowrap">{updatedLabel(a.updated_at)}</td>
                 </tr>
               ))}
             </tbody>

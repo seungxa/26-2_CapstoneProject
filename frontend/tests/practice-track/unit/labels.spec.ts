@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { focusLabel, label, langOf, needsWorkReason, reasonLabel, type LabelKind } from "../../../src/features/practice-track/labels";
+import { focusLabel, label, langOf, needsWorkReason, reasonLabel, sessionKind, type LabelKind } from "../../../src/features/practice-track/labels";
 
 const TABLE: Record<LabelKind, Record<string, string>> = {
   category: { 인성: "Personality", 직무: "Job Fit", 기업: "Company", 상황: "Situational", 인적성: "Aptitude" },
@@ -66,4 +66,12 @@ test("langOf marks only text with Hangul as Korean", () => {
   expect(langOf("결과를 확인한 방법")).toBe("ko");
   expect(langOf("Explain how you measured it.")).toBeUndefined();
   expect(langOf(null)).toBeUndefined();
+});
+
+test("session kinds come from the mode and the stored title prefix", () => {
+  // Stored titles stay Korean (backend practice.py); History shows the kind in English
+  expect(sessionKind({ mode: "free", title: "자유 연습 11/14 18:04" })).toBe("Practice");
+  expect(sessionKind({ mode: "mock", title: "모의 면접 11/14 18:04" })).toBe("Mock Interview");
+  expect(sessionKind({ mode: "free", title: "보완 연습 · 자유 연습 11/14 18:04" })).toBe("Practice Again");
+  expect(sessionKind({ mode: "free", title: "Custom title" })).toBe("Practice");
 });

@@ -72,9 +72,9 @@ test('classification controls, frozen review and accessible competency history',
  const homeTaxonomy=observed.filter(r=>r.path==='/practice/taxonomy'&&r.method==='GET').length;
  const questionGets=observed.filter(r=>r.path==='/practice/questions'&&r.method==='GET').length;
  await page.goto('/practice/history');
- await expect(page.getByLabel('연습 역량 필터')).toBeVisible();
- await page.getByLabel('연습 역량 필터').selectOption(taxonomy.competencies[0].key);
- await expect(page.getByRole('link',{name:/자유 연습/}).first()).toBeVisible();
+ await expect(page.getByLabel('Filter by skill',{exact:true})).toBeVisible();
+ await page.getByLabel('Filter by skill',{exact:true}).selectOption(taxonomy.competencies[0].key);
+ await expect(page.getByRole('link',{name:/^Practice · /}).first()).toBeVisible();
  const callCounts={homeTaxonomyGets:homeTaxonomy,homeQuestionGetsIncludingEditorRefresh:questionGets,historyTaxonomyGets:observed.filter(r=>r.path==='/practice/taxonomy'&&r.method==='GET').length-homeTaxonomy,reviewExtraCoachingPosts:reviewRequests.filter(r=>r.method==='POST'&&/\/(coach|debrief)$/.test(r.path)).length};
  console.log('Integrated review API counts',JSON.stringify(callCounts));
  await test.info().attach('api-call-counts.json',{body:JSON.stringify(callCounts,null,2),contentType:'application/json'});
