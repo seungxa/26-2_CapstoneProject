@@ -203,7 +203,10 @@ test("event editing and deletion keep manual state until explicit recalculation"
   await request.patch(`${API}/track/applications/${app.id}`, { data: { stage: "1차면접", status: "보류" } });
   await page.goto(`/track/${app.id}`);
   await expect(page.getByText("Set by hand.", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Edit Application Nov 1, 2026", exact: true }).click();
+  // A result's buttons never share a name prefix with the whole-application Delete Application (서류 is "Application")
+  await expect(page.getByRole("button", { name: "Delete Application" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Delete Application" })).toHaveText("Delete Application");
+  await page.getByRole("button", { name: "Edit result: Application Nov 1, 2026", exact: true }).click();
   await editResult(page).getByLabel("Note", { exact: true }).fill("내용 수정");
   await editResult(page).getByRole("combobox", { name: "Result", exact: true }).selectOption("불합격");
   await editResult(page).getByRole("button", { name: "Save", exact: true }).click();
@@ -215,7 +218,7 @@ test("event editing and deletion keep manual state until explicit recalculation"
   await expect(page.getByRole("button", { name: "Follow Results", exact: true })).toHaveCount(0);
   await details(page).getByRole("button", { name: "Edit", exact: true }).click();
   await expect(details(page).getByRole("combobox", { name: "Status", exact: true })).toHaveValue("불합격");
-  await page.getByRole("button", { name: "Delete Application Nov 1, 2026", exact: true }).click();
+  await page.getByRole("button", { name: "Delete result: Application Nov 1, 2026", exact: true }).click();
   await expect(statusChip(page)).toHaveText("In Progress");
 });
 
@@ -275,7 +278,7 @@ for (const action of ["basic info", "event", "reload"] as const) {
       } else if (action === "event") {
         await page.getByRole("button", { name: "Add Result", exact: true }).click();
       } else {
-        await page.getByRole("button", { name: "Edit Application Nov 1, 2026", exact: true }).click();
+        await page.getByRole("button", { name: "Edit result: Application Nov 1, 2026", exact: true }).click();
         await editResult(page).getByLabel("Note", { exact: true }).fill(`수정 ${eventId}`);
         await editResult(page).getByRole("button", { name: "Save", exact: true }).click();
       }

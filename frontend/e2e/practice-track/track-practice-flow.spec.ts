@@ -155,7 +155,7 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     await addEvent("1차면접", "불합격", "2026-11-04", "면접 확인");
     await state(page, "1차면접", "불합격");
     await statsMatch("불합격", "1차면접");
-    await page.getByRole("row").filter({ hasText: "면접 확인" }).getByRole("button", { name: "Edit 1st Interview Nov 4, 2026", exact: true }).click();
+    await page.getByRole("row").filter({ hasText: "면접 확인" }).getByRole("button", { name: "Edit result: 1st Interview Nov 4, 2026", exact: true }).click();
     const edit = page.getByRole("group", { name: "Edit Result", exact: true });
     await expect(edit).toBeVisible();
     await edit.getByRole("combobox", { name: "Result", exact: true }).selectOption("대기");
@@ -173,7 +173,7 @@ test("UI-created Track history and confirmed essays remain frozen in linked Prac
     await state(page, "2차면접", "보류");
     await storedState(page, "2차면접", "보류");
     await expect(page.getByText("Set by hand.", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: "Delete 1st Interview Nov 4, 2026", exact: true }).click();
+    await page.getByRole("button", { name: "Delete result: 1st Interview Nov 4, 2026", exact: true }).click();
     await expect(note("면접 결과 정정")).toHaveCount(0);
     await state(page, "2차면접", "보류");
     await statsMatch("보류", "2차면접");

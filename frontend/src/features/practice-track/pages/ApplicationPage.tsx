@@ -294,8 +294,8 @@ export default function ApplicationPage() {
                         {e.memo && <div className="small event-note" lang={langOf(e.memo)}>{e.memo}</div>}
                       </td>
                       <td className="row-actions">
-                        <button className="small" aria-label={`Edit ${name}`} disabled={pending} onClick={() => setEditing(e)}>Edit</button>
-                        <button aria-label={`Delete ${name}`} className="small danger" disabled={pending} onClick={() => act("stages", async () => { await api.deleteEvent(e.id); await reload(); }, reload)}>×</button>
+                        <button className="small" aria-label={`Edit result: ${name}`} disabled={pending} onClick={() => setEditing(e)}>Edit</button>
+                        <button aria-label={`Delete result: ${name}`} className="small danger" disabled={pending} onClick={() => act("stages", async () => { await api.deleteEvent(e.id); await reload(); }, reload)}>×</button>
                       </td>
                     </tr>
                   );
