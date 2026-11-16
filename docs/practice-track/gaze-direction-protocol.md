@@ -6,6 +6,28 @@
 
 ## 실행
 
+카메라가 있는 컴퓨터에서 직접 띄운다. 브라우저는 `localhost` 주소나 https에서만 카메라를 허락하므로, 다른 컴퓨터에서 띄운 화면에 접속하는 방식은 쓰지 않는다.
+
+### 카메라가 있는 노트북에서 (권장)
+
+실험실 화면만 띄운다. 로그인, 연습 서버, 파이썬이 필요 없다.
+
+1. 준비물은 Git과 Node.js 22 이상뿐이다. 인터넷은 처음 한 번 얼굴 검출 모델을 받을 때 필요하다.
+2. 처음 한 번만:
+   ```
+   git clone -b feature/local-ai-gaze-direction https://github.com/seungxa/26-2_CapstoneProject.git
+   cd 26-2_CapstoneProject/frontend
+   npm ci
+   cd ..
+   ```
+   이미 받아 두었다면 저장소 루트에서 `git pull`만 한다.
+3. 저장소 루트에서 `node scripts/practice-track/start-gaze-lab.mjs`를 실행한다. Windows 명령 프롬프트, PowerShell, macOS 터미널 모두 같다.
+4. 같은 노트북의 크롬으로, 실행기가 알려 준 주소 `http://localhost:5181/src/features/practice-track/dev/gaze-lab.html`에 접속한다.
+5. "Turn On Camera"를 누르고, 카메라 권한을 직접 허락한다.
+6. 끝나면 실행기 창에서 Ctrl-C로 끈다. 실험실 결과는 화면을 떠나면 사라지므로, 먼저 집계를 복사해 둔다. 실행기가 처음에 보여 준 `Code:` 값을 기록표의 Git SHA로 적는다.
+
+### 앱 전체와 함께 (카메라가 있는 개발 PC)
+
 1. 저장소 루트에서 `scripts/practice-track/start-validation-pilot.sh`를 실행한다.
    - 로컬 인증 대역, 백엔드, 프런트를 새 임시 폴더로 띄운다.
    - 외부 유료 API는 쓰지 않는다.

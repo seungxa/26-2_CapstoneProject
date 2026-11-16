@@ -30,6 +30,23 @@ test("following fake user: calibration succeeds, the run passes, nothing is sent
   expect(sent.filter((b) => /landmark|gaze|points|"ex"|"ey"/i.test(b))).toEqual([]);
 });
 
+test("the standalone lab page runs without signing in or calling a server", async ({ page }) => {
+  const calls: string[] = [];
+  page.on("request", (r) => { if (/:80\d\d\//.test(r.url())) calls.push(r.url()); });
+  await page.addInitScript(() => {
+    localStorage.setItem("e2e-face-detector", "gaze");
+    localStorage.setItem("e2e-gaze-scale", "0.2");
+  });
+  await page.goto("/src/features/practice-track/dev/gaze-lab.html");
+  await expect(page.getByRole("heading", { name: "시선 방향 실험실(개발 전용)" })).toBeVisible();
+  await page.getByRole("button", { name: "Turn On Camera" }).click();
+  await expect(page.getByText("Face in view")).toBeVisible();
+  await page.getByRole("button", { name: "시험 시작" }).click();
+  await reachTrials(page);
+  expect(page.url()).toContain("/dev/gaze-lab.html");
+  expect(calls).toEqual([]);
+});
+
 test("a user who does not follow the dots fails calibration and can retry", async ({ page }) => {
   await startLab(page, "gaze-still");
   await expect(page.getByRole("alert")).toContainText("기준을 잡지 못했어요", { timeout: 60_000 });
