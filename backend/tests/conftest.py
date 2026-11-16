@@ -81,14 +81,15 @@ def fake_stt(monkeypatch) -> FakeStt:
 class FakeFollowup:
     """가짜 꼬리질문 모델(followup_model._loader 자리에 끼운다). llama.cpp 없이 로딩·직렬화·시간 상한·검증 경로를 그대로 돈다.
 
-    reply: 모델이 낼 원문, 또는 생성할 때 던질 예외. delay: 생성 한 번에 걸리는 시간(초).
+    reply: 모델이 낼 원문, 또는 생성할 때 던질 예외. 목록이면 호출마다 차례로 내고, 마지막 것을 계속 낸다.
+    delay: 생성 한 번에 걸리는 시간(초).
     load_error: 불러올 때 던질 예외(ImportError는 라이브러리 없음, OSError는 내려받기 실패 등).
     load_gate: 정해 두면 로더가 이 Event가 열릴 때까지 멈춘다(긴 로딩·첫 내려받기 흉내, 최대 10초).
     calls: 생성 호출마다 {"messages", "max_tokens", "temperature", "start", "end"}(time.monotonic 시각). loads: 로더 호출 수.
     """
 
     def __init__(self):
-        self.reply: str | Exception = "그때 본인이 맡은 역할은 무엇이었나요?"
+        self.reply: str | Exception | list = "그때 본인이 맡은 역할은 무엇이었나요?"
         self.delay: float = 0.0
         self.load_error: Exception | None = None
         self.load_gate: threading.Event | None = None
@@ -109,9 +110,10 @@ class FakeFollowup:
         self.calls.append(call)
         time.sleep(self.delay)
         call["end"] = time.monotonic()
-        if isinstance(self.reply, BaseException):
-            raise self.reply
-        return {"choices": [{"message": {"role": "assistant", "content": self.reply}}]}
+        reply = self.reply[min(len(self.calls), len(self.reply)) - 1] if isinstance(self.reply, list) else self.reply
+        if isinstance(reply, BaseException):
+            raise reply
+        return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
 
 
 @pytest.fixture

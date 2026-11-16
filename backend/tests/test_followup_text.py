@@ -1,6 +1,8 @@
+import re
 import pytest
 
-from app.followup_text import MAX_QUESTION_CHARS, MAX_TRANSCRIPT_CHARS, build_messages, validate_followup
+from app.followup_text import (MAX_QUESTION_CHARS, MAX_RETRY_ECHO_CHARS, MAX_TRANSCRIPT_CHARS, build_messages,
+                               retry_messages, validate_followup)
 
 
 def test_valid_korean_question_is_cleaned():
@@ -25,16 +27,60 @@ def test_numbers_from_the_answer_are_allowed():
     assert reason is None and text.endswith("주세요.")
 
 
+ASK = "그때 선택한 방법의 이유와 결과를 확인한 과정을 설명해 주세요."
+
+
 def test_long_transcript_is_truncated():
-    msgs = build_messages("질문", "가" * 20000, "specificity")
-    assert len(msgs) == 2 and msgs[0]["role"] == "system"
-    assert msgs[1]["content"].count("가") <= MAX_TRANSCRIPT_CHARS
+    msgs = build_messages("질문", "가" * 20000, ASK)
+    assert [m["role"] for m in msgs] == ["system", "user"]
+    assert msgs[-1]["content"].count("가") <= MAX_TRANSCRIPT_CHARS
 
 
 def test_prompt_states_the_rules():
-    system = build_messages("q", "a", "specificity")[0]["content"]
-    for rule in ("한 문장", "지어내지", "감정"):
+    system = build_messages("q", "a", ASK)[0]["content"]
+    for rule in ("한 문장", "지어내지", "감정", "요약", "되풀이"):
         assert rule in system
+
+
+def test_prompt_gives_what_to_ask():
+    turn = build_messages("성과를 말해 주세요.", "매출을 올렸습니다.", ASK)[-1]
+    assert turn["content"] == f"면접 질문: 성과를 말해 주세요.\n지원자 답변: 매출을 올렸습니다.\n물어볼 것: {ASK}\n꼬리질문:"
+
+
+def test_the_prompt_label_is_removed_from_a_reply():
+    assert validate_followup(f"꼬리질문: 매출을 어떻게 올리셨나요?", "q", "a", ASK) == ("매출을 어떻게 올리셨나요?", None)
+
+
+def test_an_empty_ask_uses_a_general_request():
+    turn = build_messages("q", "a", "")[-1]["content"]
+    assert "물어볼 것: 답변에서 빠진" in turn
+
+
+def test_a_retry_shows_the_failed_reply_and_the_reason():
+    msgs = build_messages("q", "a", ASK)
+    retry = retry_messages(msgs, "  캐시를 넣었습니다.  ", "repeats_question")
+    assert retry[:2] == msgs
+    assert retry[2] == {"role": "assistant", "content": "캐시를 넣었습니다."}
+    assert retry[3]["role"] == "user" and "원래 면접 질문을 되풀이했습니다" in retry[3]["content"]
+
+
+def test_a_long_failed_reply_is_cut_in_the_retry():
+    retry = retry_messages(build_messages("q", "a", ASK), "가" * 1000, "length")
+    assert len(retry[2]["content"]) == MAX_RETRY_ECHO_CHARS == 160
+
+
+def test_every_reason_code_has_a_retry_hint():
+    import inspect
+    from app import followup_text
+    codes = set(re.findall(r'return None, "(\w+)"', inspect.getsource(followup_text.validate_followup)))
+    assert codes == set(followup_text._RETRY_HINT)
+
+
+def test_the_request_alone_is_not_a_follow_up():
+    assert validate_followup(ASK, "성과를 말해 주세요", "매출을 올렸습니다", ASK) == (None, "repeats_ask")
+    assert validate_followup("그때 선택한 방법의 이유와 결과를 확인한 과정을 설명해 주세요", "q", "a", ASK) == (None, "repeats_ask")
+    tailored = "매출을 올릴 때 " + ASK
+    assert validate_followup(tailored, "성과를 말해 주세요", "매출을 올렸습니다", ASK) == (tailored, None)
 
 
 GOOD_Q = "그때 본인이 맡은 역할은 무엇이었나요?"
@@ -152,8 +198,8 @@ def test_feeling_questions_are_forbidden(raw):
 
 
 def test_long_question_is_truncated():
-    msgs = build_messages("나" * 5000, "답변", "specificity")
-    assert msgs[1]["content"].count("나") == MAX_QUESTION_CHARS == 300
+    msgs = build_messages("나" * 5000, "답변", ASK)
+    assert msgs[-1]["content"].count("나") == MAX_QUESTION_CHARS == 300
 
 
 def test_a_very_short_question_is_rejected_only_when_repeated_exactly():
@@ -178,3 +224,4 @@ def test_a_label_alone_on_the_first_line_is_skipped(raw):
 
 def test_a_statement_on_the_first_line_is_not_skipped():
     assert validate_followup(f"구체적인 과정이 들어 있어 좋은 답변입니다.\n{GOOD_Q}", "q", "a") == (None, "not_question")
+

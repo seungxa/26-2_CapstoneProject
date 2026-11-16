@@ -805,7 +805,7 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
     # Ask the local model before taking the session lock (it can take up to FOLLOWUP_TIMEOUT_SEC), with no read
     # transaction left open meanwhile. Without a usable reply the template question of the report is used.
     db.commit()
-    made = followup_model.generate(question, transcript, report["followup"].get("focus", ""))
+    made = followup_model.generate(question, transcript, coaching.followup_ask(report["followup"]))
     # A short database write serializes insertion on SQLite and PostgreSQL alike.
     # No external model request is made while holding this session lock.
     answer_coaching.lock_session(db, session_id)
@@ -844,8 +844,9 @@ def followup(answer_id: str, user_id: str = Depends(current_user_id), db: Sessio
         db.rollback()
         if not db.scalar(select(AnswerCoaching).where(AnswerCoaching.parent_answer_id == answer_id)):
             raise
-    log.info("followup generated=%s reason=%s ms=%d", generated,
-             made.fallback_reason if made.text is None else (None if generated else "answer_changed"), made.elapsed_ms)
+    log.info("followup generated=%s reason=%s attempts=%d ms=%d", generated,
+             made.fallback_reason if made.text is None else (None if generated else "answer_changed"),
+             made.attempts, made.elapsed_ms)
     db.expire_all()
     return _session_out(_own_session(db, user_id, session_id))
 

@@ -71,6 +71,18 @@ def input_fingerprint(question: str, transcript: str | None, context: dict, hist
                                      separators=(",", ":")).encode()).hexdigest()
 
 
+# The template follow-up quotes the answer, then asks one of these (Korean: interview follow-up content).
+# The local follow-up model is given the same request as what to ask (followup_ask)
+_ASK_MEASURE = "개선 전후의 측정 지표와 비교 조건을 설명해 주세요."
+_ASK_REASON = "그때 선택한 방법의 이유와 결과를 확인한 과정을 설명해 주세요."
+
+
+def followup_ask(followup: dict) -> str:
+    """The request part of a report's template follow-up, or "" for a report written with other wording."""
+    text = followup.get("text") or ""
+    return next((ask for ask in (_ASK_MEASURE, _ASK_REASON) if text.endswith(ask)), "")
+
+
 def _basic(transcript: str, context: dict) -> dict:
     quote = transcript.strip()[:180]
     source = next((e for e in context.get("essays", []) if e["content"].strip()), None)
@@ -78,11 +90,11 @@ def _basic(transcript: str, context: dict) -> dict:
     numeric = bool(re.search(r"\d", transcript))
     needs_measurement = bool(not numeric and source and re.search(r"\d", source_quote))
     if needs_measurement:
-        detail = "개선 전후의 측정 지표와 비교 조건을 설명해 주세요."  # Korean: interview follow-up content
+        detail = _ASK_MEASURE
         next_action = "Explain the measures and comparison conditions from before and after the improvement."
         reason = "The essay has numbers but this answer has none, so the follow-up asks how it was measured."
     else:
-        detail = "그때 선택한 방법의 이유와 결과를 확인한 과정을 설명해 주세요."  # Korean: interview follow-up content
+        detail = _ASK_REASON
         next_action = "Explain why you chose that approach and how you checked the result."
         reason = "The follow-up asks for the reasoning behind the choice and how the result was checked."
     return {"method": "basic", "rubric_version": RUBRIC_VERSION,

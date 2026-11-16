@@ -4,7 +4,8 @@
 
 - 불러오기: app.followup_model._loader 그대로(캐시 먼저, 없을 때만 Hugging Face에서 한 번 내려받기).
   내려받기 시간은 따로 재서 첫 로딩 시간에 섞지 않는다.
-- 생성: 서버와 같은 build_messages(초점 specificity), N_CTX·MAX_TOKENS·TEMPERATURE, validate_followup.
+- 생성: 서버와 같은 followup_model.ask_model(물어볼 것은 coaching 템플릿의 요청, 검증 실패 때 한 번 더 시도),
+  N_CTX·MAX_TOKENS·TEMPERATURE, validate_followup. 시간 상한도 서버의 FOLLOWUP_TIMEOUT_SEC를 쓴다.
 - 결과는 마크다운으로 stdout에 낸다. 통과 수는 형식 검증(한국어·길이·질문 꼴·한 문장·질문 되풀이·금지어·지어낸 숫자)만 뜻한다.
   질문이 쓸 만한지는 사람이 원문을 읽고 판단한다(표의 빈 칸).
 - 한 번 실행에 모델 하나만 올린다. 다음 후보는 새로 실행한다(메모리가 작은 기계 기준).
@@ -23,11 +24,15 @@ from types import SimpleNamespace
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app import followup_model  # noqa: E402
-from app.followup_model import MAX_TOKENS, N_CTX, TEMPERATURE  # noqa: E402
-from app.followup_text import MAX_TRANSCRIPT_CHARS, build_messages, validate_followup  # noqa: E402
+from app import coaching, followup_model  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.followup_model import MAX_ATTEMPTS, MAX_TOKENS, N_CTX, TEMPERATURE  # noqa: E402
+from app.followup_text import MAX_TRANSCRIPT_CHARS  # noqa: E402
 
-FOCUS = "specificity"  # 엔드포인트가 넘기는 값(coaching.build_report의 followup.focus)
+
+def ask_for(transcript: str) -> str:
+    """엔드포인트가 넘기는 물어볼 것: 자소서 없이 만든 템플릿 꼬리질문의 요청 부분(coaching.followup_ask)."""
+    return coaching.followup_ask(coaching._basic(transcript, {"essays": []})["followup"])
 PASS_MIN = 7
 AVG_MAX_SEC = 20.0
 
@@ -135,7 +140,7 @@ def _environment(threads: int, temperature: float) -> list[str]:
             f"- OS: {platform.platform()}, Python {platform.python_version()}, llama-cpp-python {llama_version}",
             f"- Git: {sha}",
             f"- 생성 조건: n_ctx {N_CTX}, max_tokens {MAX_TOKENS}, temperature {temperature}, "
-            f"전사문 앞 {MAX_TRANSCRIPT_CHARS}자, 초점 {FOCUS}"]
+            f"전사문 앞 {MAX_TRANSCRIPT_CHARS}자, 최대 {MAX_ATTEMPTS}번 시도, 시간 상한 {settings.followup_timeout_sec:.0f}초"]
 
 
 def _fetch(repo: str, name: str, cache: str | None) -> tuple[str, float | None]:
@@ -190,27 +195,32 @@ def main() -> int:
     size_mb = Path(path).stat().st_size / 1048576
     rss_after_load = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
-    rows, times, passed, prompt_tokens = [], [], 0, []
+    rows, times, passed, first_passed, prompt_tokens = [], [], 0, 0, []
     for i, (kind, question, transcript) in enumerate(SAMPLES, 1):
         started = time.perf_counter()
-        finish, usage = "", {}
+        tries: list = []
         try:
-            reply = model.create_chat_completion(messages=build_messages(question, transcript, FOCUS),
-                                                 max_tokens=MAX_TOKENS, temperature=args.temperature, seed=args.seed)
-            raw = reply["choices"][0]["message"]["content"] or ""
-            finish, usage = reply["choices"][0].get("finish_reason") or "", reply.get("usage") or {}
-            text, reason = validate_followup(raw, question, transcript)
+            text, reason, tries = followup_model.ask_model(
+                model, question, transcript, ask_for(transcript), time.monotonic() + settings.followup_timeout_sec,
+                temperature=args.temperature, seed=args.seed)
         except Exception as e:  # 한 샘플의 실패(예: 문맥 초과)는 그 줄의 결과로 남긴다
-            raw, text, reason = "", None, f"error ({type(e).__name__}: {str(e)[:120]})"
+            text, reason = None, f"error ({type(e).__name__}: {str(e)[:120]})"
         sec = time.perf_counter() - started
         times.append(sec)
         passed += text is not None
-        if usage.get("prompt_tokens"):
-            prompt_tokens.append(usage["prompt_tokens"])
-        tokens = f"{usage.get('prompt_tokens', '?')}+{usage.get('completion_tokens', '?')}"
+        first_passed += bool(tries) and tries[0].reason is None
+        cells, tokens, finishes = [], [], []
+        for n, t in enumerate(tries, 1):
+            usage = t.reply.get("usage") or {}
+            if usage.get("prompt_tokens"):
+                prompt_tokens.append(usage["prompt_tokens"])
+            tokens.append(f"{usage.get('prompt_tokens', '?')}+{usage.get('completion_tokens', '?')}")
+            finishes.append(t.reply["choices"][0].get("finish_reason") or "?")
+            mark = "" if t.reason is None else f" (`{t.reason}`)"
+            cells.append(f"{n}) {_cell(t.raw)}{mark}")
         verdict = f"통과: {_cell(text)}" if text else f"실패: `{reason}`"
-        rows.append(f"| {i} | {kind} | {len(transcript)} | {_cell(raw)} | {verdict} | {sec * 1000:.0f} | "
-                    f"{tokens} | {finish or '?'} |  |")
+        rows.append(f"| {i} | {kind} | {len(transcript)} | {' ⏎⏎ '.join(cells) or '(출력 없음)'} | {verdict} | "
+                    f"{len(tries)} | {sec * 1000:.0f} | {', '.join(tokens) or '?'} | {', '.join(finishes) or '?'} |  |")
 
     avg_s, max_s = statistics.mean(times), max(times)
     ok = passed >= PASS_MIN and avg_s <= AVG_MAX_SEC
@@ -221,15 +231,15 @@ def main() -> int:
     out += ["### 요약", "",
             f"- 모델 파일: {size_mb:.0f} MB" + (f", 내려받기 {download_s:.1f}초(처음 한 번)" if download_s else ", 캐시에 있음"),
             f"- 첫 로딩: {load_s:.1f}초, 로딩 직후 최대 RSS {rss_after_load:.0f} MB, 시험 끝 최대 RSS {peak_rss:.0f} MB",
-            f"- 생성 시간: 평균 {avg_s:.1f}초, 최대 {max_s:.1f}초, 합계 {sum(times):.1f}초",
-            f"- 검증 통과: {passed}/{len(SAMPLES)}",
+            f"- 생성 시간(다시 시도 포함): 평균 {avg_s:.1f}초, 최대 {max_s:.1f}초, 합계 {sum(times):.1f}초",
+            f"- 검증 통과: {passed}/{len(SAMPLES)} (첫 시도에서 {first_passed}개, 다시 시도해서 {passed - first_passed}개)",
             f"- 가장 긴 입력 토큰 + 출력 상한: {budget}",
             f"- 판정: **{'통과' if ok else '실패'}** (불러오기 성공, {PASS_MIN}개 이상 통과, 평균 {AVG_MAX_SEC:.0f}초 이하)",
             "",
             "### 샘플별 결과", "",
             "통과 수는 형식 검증만 뜻한다. 질문이 쓸 만한지는 마지막 칸에 사람이 적는다.", "",
-            "| # | 유형 | 답변 글자 수 | 원문 출력 | 검증 | 시간(ms) | 토큰(입력+출력) | 끝난 이유 | 사람 판단(쓸 만함/아님, 메모) |",
-            "|---|---|---|---|---|---|---|---|---|", *rows, ""]
+            "| # | 유형 | 답변 글자 수 | 원문 출력(시도별, 괄호는 실패 사유) | 검증 | 시도 | 시간(ms) | 토큰(입력+출력) | 끝난 이유 | 사람 판단(쓸 만함/아님, 메모) |",
+            "|---|---|---|---|---|---|---|---|---|---|", *rows, ""]
     print("\n".join(out))
     return 0 if ok else 1
 

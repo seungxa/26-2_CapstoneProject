@@ -17,16 +17,17 @@ from fastapi.testclient import TestClient
 
 from app import followup_model
 from app.config import ConfigError, Settings, settings
-from app.followup_text import build_messages
+from app.followup_text import build_messages, retry_messages
 
 BACKEND = Path(__file__).resolve().parent.parent
 Q = "팀 프로젝트에서 갈등을 해결한 경험을 말해 주세요."
 A = "일정이 밀려서 제가 작업을 다시 나누고 팀원과 마감을 맞췄습니다."
 GOOD = "그때 본인이 맡은 역할은 무엇이었나요?"
+ASK = "그때 선택한 방법의 이유와 결과를 확인한 과정을 설명해 주세요."
 
 
 def ask() -> followup_model.FollowupResult:
-    return followup_model.generate(Q, A, "specificity")
+    return followup_model.generate(Q, A, ASK)
 
 
 def wait_until(check, timeout: float = 5.0) -> None:
@@ -49,16 +50,54 @@ def test_off_mode_returns_off_without_loading(fake_followup, monkeypatch):
 
 def test_valid_reply_is_returned(fake_followup):
     r = ask()
-    assert r == followup_model.FollowupResult(GOOD, None, r.elapsed_ms)
+    assert r == followup_model.FollowupResult(GOOD, None, r.elapsed_ms, attempts=1)
     [call] = fake_followup.calls
-    assert call["messages"] == build_messages(Q, A, "specificity")
+    assert call["messages"] == build_messages(Q, A, ASK)
     assert (call["max_tokens"], call["temperature"]) == (96, 0.1)
 
 
 def test_invalid_reply_reports_reason(fake_followup):
     fake_followup.reply = "What was your role in that project?"
     r = ask()
-    assert (r.text, r.fallback_reason) == (None, "not_korean")
+    assert (r.text, r.fallback_reason, r.attempts) == (None, "not_korean", 2)
+
+
+# ───────── one more try after a failed reply ─────────
+
+def test_a_failed_reply_is_tried_again_and_told_why(fake_followup):
+    summary = "캐시를 넣어서 응답 시간을 줄였습니다."
+    fake_followup.reply = [summary, GOOD]
+    r = ask()
+    assert (r.text, r.fallback_reason, r.attempts) == (GOOD, None, 2)
+    first, second = fake_followup.calls
+    assert first["messages"] == build_messages(Q, A, ASK)
+    assert second["messages"] == retry_messages(first["messages"], summary, "not_question")
+    assert second["messages"][-2] == {"role": "assistant", "content": summary}
+    assert "질문이 아니라" in second["messages"][-1]["content"]
+    assert (second["max_tokens"], second["temperature"]) == (96, 0.1)
+
+
+def test_two_failed_replies_report_the_last_reason(fake_followup):
+    fake_followup.reply = ["캐시를 넣었습니다.", Q]
+    r = ask()
+    assert (r.text, r.fallback_reason, r.attempts) == (None, "repeats_question", 2)
+    assert len(fake_followup.calls) == 2
+
+
+def test_no_second_try_without_time_for_it(fake_followup, monkeypatch):
+    monkeypatch.setattr(settings, "followup_timeout_sec", 1.5)
+    fake_followup.delay = 1.0  # the first try took 1 s; only about 0.5 s is left
+    fake_followup.reply = ["캐시를 넣었습니다.", GOOD]
+    r = ask()
+    assert (r.text, r.fallback_reason, r.attempts) == (None, "not_question", 1)
+    assert len(fake_followup.calls) == 1
+
+
+def test_a_generation_error_is_not_retried(fake_followup):
+    fake_followup.reply = [RuntimeError("llama_decode returned -1"), GOOD]
+    r = ask()
+    assert (r.text, r.fallback_reason) == (None, "error")
+    assert len(fake_followup.calls) == 1
 
 
 def test_missing_library_falls_back(fake_followup):
@@ -300,7 +339,7 @@ def test_default_loader_uses_the_cache_without_downloading(libs):
     followup_model._loader(settings)
     assert libs.downloads == [{"repo_id": settings.followup_model_repo, "filename": settings.followup_model_file,
                                "cache_dir": None, "local_files_only": True}]
-    assert libs.models == [{"model_path": f"/cache/{settings.followup_model_file}", "n_ctx": 1536,
+    assert libs.models == [{"model_path": f"/cache/{settings.followup_model_file}", "n_ctx": 2048,
                             "n_threads": 2, "n_threads_batch": 2, "verbose": False}]
 
 

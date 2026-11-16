@@ -49,7 +49,7 @@ def test_generated_question_is_used(client, fake_followup, caplog):
     assert len(fake_followup.calls) == 1
     prompt = fake_followup.calls[0]["messages"][-1]["content"]
     assert QUESTION in prompt and TRANSCRIPT in prompt
-    assert "followup generated=True reason=None" in caplog.text
+    assert "followup generated=True reason=None attempts=1" in caplog.text
 
 
 @pytest.mark.parametrize("mode", ["invalid", "off"])
@@ -67,9 +67,20 @@ def test_invalid_or_off_uses_template(client, fake_followup, monkeypatch, caplog
     assert child["question"]["text"] == template["text"]
     assert child["followup_reason"] == template["reason"]
     assert child["parent_answer_id"] == aid
-    assert len(fake_followup.calls) == (0 if mode == "off" else 1)
-    reason = "off" if mode == "off" else "not_korean"
-    assert f"followup generated=False reason={reason}" in caplog.text
+    assert len(fake_followup.calls) == (0 if mode == "off" else 2)  # a failed reply gets one more try
+    reason, attempts = ("off", 0) if mode == "off" else ("not_korean", 2)
+    assert f"followup generated=False reason={reason} attempts={attempts}" in caplog.text
+
+
+def test_the_model_is_told_what_the_template_asks(client, fake_followup):
+    h, _, aid = make_answer(client)
+    r = ask(client, h, aid)
+    assert r.status_code == 201, r.text
+    template = r.json()["answers"][0]["coaching_report"]["followup"]["text"]
+    turn = fake_followup.calls[0]["messages"][-1]["content"]
+    ask_line = next(line for line in turn.splitlines() if line.startswith("물어볼 것: "))
+    request = ask_line.removeprefix("물어볼 것: ")
+    assert template.endswith(request) and len(request) > 10
 
 
 def test_model_is_not_called_under_the_session_lock(client, fake_followup, monkeypatch):

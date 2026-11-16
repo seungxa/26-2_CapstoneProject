@@ -7,7 +7,9 @@ off   : never loads anything. Callers use their template question.
 
 generate() never raises and never takes longer than FOLLOWUP_TIMEOUT_SEC: waiting for a running generation and
 generating share that limit. One generation runs at a time. No work is done for a request that has given up:
-a generation is not started with less than MIN_GENERATION_SEC left, also when a slow load ends late. A generation
+a generation is not started with less than MIN_GENERATION_SEC left, also when a slow load ends late.
+A reply that fails validation gets one more try (MAX_ATTEMPTS), told what was wrong, when as much time is left
+as the first try took. A generation
 that passes the limit anyway keeps running (llama.cpp cannot be interrupted); its reply is dropped.
 While the model is loading (first download, preload, a retry), only the request that started the load waits for
 it; the others get "unavailable" at once instead of holding a server thread for the whole limit.
@@ -25,16 +27,19 @@ import time
 from dataclasses import dataclass
 
 from .config import settings
-from .followup_text import build_messages, validate_followup
+from .followup_text import build_messages, retry_messages, validate_followup
 
 log = logging.getLogger(__name__)
 
-# 1536, not 1024: a 1,200-character answer full of numbers measured 1,084-1,169 prompt tokens with EXAONE
-# (each digit is a token); see docs/practice-track/followup-model-check.md
-N_CTX = 1536
+# A 1,200-character answer full of numbers measured 1,178-1,256 prompt tokens with EXAONE (each digit is a token),
+# and its second try (the failed reply and what was wrong) 1,395-1,473; 2048 leaves room for MAX_TOKENS after both.
+# See docs/practice-track/followup-model-check.md
+N_CTX = 2048
 MAX_TOKENS = 96
 # The EXAONE 4.0 model card suggests 0.1 for Korean conversation with the 1.2B model (less code switching)
 TEMPERATURE = 0.1
+# A reply that fails validation gets one more try, told what was wrong (followup_text.retry_messages)
+MAX_ATTEMPTS = 2
 # Do not start a generation with less time left than this: it could not finish and would only hold the model
 MIN_GENERATION_SEC = 1.0
 # After a failed load (download, cache, model file), the next try waits this long (seconds)
@@ -50,6 +55,37 @@ class FollowupResult:
     text: str | None  # validated Korean follow-up question, None when the caller should use its template
     fallback_reason: str | None  # "off" | "unavailable" | "timeout" | "error" | a validate_followup reason code
     elapsed_ms: int
+    attempts: int = 0  # generations run for this request (0 when the model was not asked)
+
+
+@dataclass
+class Attempt:
+    raw: str  # the model's reply as written
+    reason: str | None  # None when it passed validate_followup
+    seconds: float
+    reply: dict  # the llama.cpp response (usage, finish_reason) for the probe
+
+
+def ask_model(model, question: str, transcript: str, ask: str, deadline: float,
+              **options) -> tuple[str | None, str | None, list[Attempt]]:
+    """Generate and validate, with one more try after a failed reply: (question or None, reason, attempts).
+    The second try starts only when at least as much time is left as the first one took. `options` override
+    the generation settings (the probe passes temperature and seed)."""
+    settings_ = {"max_tokens": MAX_TOKENS, "temperature": TEMPERATURE, **options}
+    messages = build_messages(question, transcript, ask)
+    attempts: list[Attempt] = []
+    while True:
+        started = time.monotonic()
+        reply = model.create_chat_completion(messages=messages, **settings_)
+        raw = reply["choices"][0]["message"]["content"] or ""
+        text, reason = validate_followup(raw, question, transcript, ask)
+        took = time.monotonic() - started
+        attempts.append(Attempt(raw, reason, took, reply))
+        if text is not None:
+            return text, None, attempts
+        if len(attempts) >= MAX_ATTEMPTS or deadline - time.monotonic() < max(took, MIN_GENERATION_SEC):
+            return None, reason, attempts
+        messages = retry_messages(messages, raw, reason)
 
 
 def _loader(cfg):
@@ -180,12 +216,13 @@ def status() -> dict:
             "model": f"{settings.followup_model_repo}/{settings.followup_model_file}"}
 
 
-def generate(question: str, transcript: str, focus: str) -> FollowupResult:
-    """One follow-up question from the local model, or text=None with the reason to use the template instead."""
+def generate(question: str, transcript: str, ask: str) -> FollowupResult:
+    """One follow-up question from the local model, or text=None with the reason to use the template instead.
+    `ask` is what the follow-up should ask about (coaching.followup_ask); empty uses a general request."""
     started = time.monotonic()
 
-    def result(text: str | None, reason: str | None) -> FollowupResult:
-        return FollowupResult(text, reason, int((time.monotonic() - started) * 1000))
+    def result(text: str | None, reason: str | None, attempts: int = 0) -> FollowupResult:
+        return FollowupResult(text, reason, int((time.monotonic() - started) * 1000), attempts)
 
     if not _local():
         return result(None, "off")
@@ -212,9 +249,8 @@ def generate(question: str, transcript: str, focus: str) -> FollowupResult:
                 log.info("follow-up model: loaded after the request's limit, not generating")
                 out["result"] = (None, "timeout")
                 return
-            reply = model.create_chat_completion(messages=build_messages(question, transcript, focus),
-                                                 max_tokens=MAX_TOKENS, temperature=TEMPERATURE)
-            out["result"] = validate_followup(reply["choices"][0]["message"]["content"], question, transcript)
+            text, reason, attempts = ask_model(model, question, transcript, ask, deadline)
+            out["result"] = (text, reason, len(attempts))
             if time.monotonic() > deadline:
                 log.info("follow-up model: a generation ended %.1fs after its limit; its reply was dropped",
                          time.monotonic() - deadline)
@@ -222,7 +258,7 @@ def generate(question: str, transcript: str, focus: str) -> FollowupResult:
             out["result"] = (None, "unavailable")
         except Exception as e:
             log.warning("follow-up model: generation failed: %r", e)
-            out["result"] = (None, "error")
+            out["result"] = (None, "error", 1)
         finally:
             runner.slot.release()
 

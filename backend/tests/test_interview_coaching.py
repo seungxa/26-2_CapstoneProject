@@ -262,3 +262,14 @@ def test_selected_generated_questions_cannot_silently_use_another_applications_c
     other = client.post("/track/applications", headers=h, json={"company": "다른회사", "position": "기획"}).json()
     r = client.post("/practice/sessions", headers=h, json={"mode": "free", "application_id": other["id"], "question_ids": [generated[0]["id"]]})
     assert r.status_code == 422
+
+
+def test_followup_ask_is_the_request_part_of_the_template():
+    from app import coaching
+    plain = coaching._basic("저는 캐시를 넣었습니다.", {"essays": []})["followup"]
+    assert coaching.followup_ask(plain) == coaching._ASK_REASON and plain["text"].endswith(coaching._ASK_REASON)
+    essay = {"essays": [{"content": "응답 시간을 40% 줄였습니다.", "version_id": "v1", "question_text": "q"}]}
+    measured = coaching._basic("저는 캐시를 넣었습니다.", essay)["followup"]
+    assert coaching.followup_ask(measured) == coaching._ASK_MEASURE
+    assert coaching.followup_ask({"text": "그 결과는 어떻게 확인했나요?"}) == ""
+    assert coaching.followup_ask({}) == ""
