@@ -82,3 +82,20 @@ def test_auth_url_must_be_project_origin(url):
 def test_unknown_auth_mode_fails_closed():
     with pytest.raises(ConfigError, match="SUPABASE_JWT_MODE"):
         Settings({"SUPABASE_JWT_MODE": "none"}).check()
+
+
+@pytest.mark.parametrize("given, used", [
+    ("postgresql://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres",
+     "postgresql+psycopg://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres"),
+    ("postgres://u:p@h:5432/db", "postgresql+psycopg://u:p@h:5432/db"),
+    ("postgresql+psycopg://u@h/db", "postgresql+psycopg://u@h/db"),
+    ("sqlite:///x.db", "sqlite:///x.db"),
+])
+def test_supabase_uri_uses_psycopg(given, used):
+    """Supabase gives postgresql://… but SQLAlchemy opens that with psycopg2, which is not installed."""
+    assert Settings({"DATABASE_URL": given, "AUTH_DISABLED": "true"}).database_url == used
+
+
+def test_stt_preload_defaults_off_and_reads_env():
+    assert Settings({}).local_stt_preload is False
+    assert Settings({"LOCAL_STT_PRELOAD": "true"}).local_stt_preload is True

@@ -338,3 +338,33 @@ def test_health_reports_the_local_provider(client, local):
     health = client.get("/health").json()
     assert set(health) == {"ok", "stt", "auth_disabled", "followup"}
     assert health["stt"]["provider"] == "local" and health["stt"]["available"] is True
+
+
+# ───────── preloading at startup (LOCAL_STT_PRELOAD) ─────────
+
+def test_stt_preload_loads_the_model_once_and_never_raises(local, monkeypatch):
+    calls = []
+    monkeypatch.setattr(stt._PROVIDERS["local"], "model", lambda: calls.append(1))
+    stt.preload()
+    assert calls == [1]
+
+    def broken():
+        calls.append(2)
+        raise stt.STTError("model_download", "The speech model could not be downloaded.")
+
+    monkeypatch.setattr(stt._PROVIDERS["local"], "model", broken)
+    stt.preload()  # no exception: model() already logged it and status() reports it
+    assert calls == [1, 2]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_startup_preloads_stt_when_asked(local, monkeypatch, enabled):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    called = threading.Event()
+    monkeypatch.setattr(stt, "preload", called.set)
+    monkeypatch.setattr(settings, "local_stt_preload", enabled, raising=False)
+    with TestClient(app):
+        assert called.wait(5 if enabled else 0.5) is enabled

@@ -58,6 +58,9 @@ async def lifespan(_: FastAPI):
         # 배포용: 첫 요청 전에 꼬리질문 모델을 불러 둔다. 내려받기·로딩이 길 수 있어 시작을 막지 않고 뒤에서 돈다
         # (그동안 /health.followup.state는 loading이고, 들어온 요청은 기다리지 않고 바로 "unavailable"로 고정 문장을 쓴다)
         threading.Thread(target=followup_model.preload, name="followup-preload", daemon=True).start()
+    if settings.local_stt_preload and settings.stt_provider == "local":
+        # 배포용: 전사 모델도 첫 녹음 전에 불러 둔다. 시작을 막지 않고 뒤에서 돈다(그동안 /health.stt.state는 loading)
+        threading.Thread(target=stt.preload, name="stt-preload", daemon=True).start()
     with SessionLocal() as db:
         seed_question_bank(db)
     # 만료된 원본 녹음: 시작할 때 한 번, 이후 PURGE_INTERVAL_MIN분마다 정리(실패해도 앱은 계속 뜬다)

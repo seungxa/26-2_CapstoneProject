@@ -237,6 +237,15 @@ class _Local:
 _PROVIDERS = {"off": _Off(), "local": _Local()}
 
 
+def preload() -> None:
+    """Load the local speech model before the first recording (LOCAL_STT_PRELOAD). Never raises: a failure is
+    logged by model() and shown by status(), and the next transcription tries again."""
+    try:
+        _PROVIDERS["local"].model()
+    except STTError:
+        pass
+
+
 def provider():
     """지금 설정(STT_PROVIDER)의 제공자. 알 수 없는 값은 꺼짐으로 본다(앱이 시작할 때 경고를 남긴다)."""
     return _PROVIDERS.get(settings.stt_provider, _PROVIDERS["off"])

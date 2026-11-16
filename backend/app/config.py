@@ -24,6 +24,15 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+def sqlalchemy_url(url: str) -> str:
+    """The database URL SQLAlchemy should open. Supabase gives postgresql://… (or postgres://…), which SQLAlchemy
+    opens with psycopg2; this app installs psycopg 3 only, so those become postgresql+psycopg://…"""
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 class ConfigError(ValueError):
     """환경변수 값이 잘못됐다. 메시지에 변수 이름을 담는다(값이 비밀일 수 있는 변수는 값을 싣지 않는다)."""
 
@@ -45,7 +54,7 @@ class Settings:
     def __init__(self, env: Mapping[str, str] | None = None):
         env = os.environ if env is None else env
         self.practice_insights_enabled = env.get("PRACTICE_INSIGHTS_ENABLED", "false").lower() == "true"
-        self.database_url: str = env.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'jobseeker.db'}"
+        self.database_url: str = sqlalchemy_url(env.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'jobseeker.db'}")
         # true일 때만 개발 모드(로그인 없이 X-User-Id). 그 밖의 값은 인증을 켠 것으로 본다
         self.auth_disabled: bool = env.get("AUTH_DISABLED", "false").lower() == "true"
         self.app_env: str = env.get("APP_ENV", "development").strip().lower()
@@ -69,6 +78,8 @@ class Settings:
         # 모델 캐시 폴더(비우면 Hugging Face 기본 캐시 ~/.cache/huggingface). 한 번 받으면 네트워크 없이 다시 쓴다
         self.local_stt_model_dir: str = env.get("LOCAL_STT_MODEL_DIR", "")
         self.local_stt_allow_download: bool = env.get("LOCAL_STT_ALLOW_DOWNLOAD", "true").lower() == "true"
+        # 서버 시작 때 전사 모델을 뒤에서 미리 불러옴(첫 녹음이 로딩을 기다리지 않고, 배포 서버의 메모리에 상주). 배포에서는 true
+        self.local_stt_preload: bool = env.get("LOCAL_STT_PRELOAD", "false").lower() == "true"
         # 다른 전사가 도는 동안 기다리는 최대 시간(초)과 자동 전사할 최대 녹음 길이(초)
         self.local_stt_queue_timeout_sec: float = _number(env, "LOCAL_STT_QUEUE_TIMEOUT_SEC", 60.0, float)
         self.local_stt_max_audio_sec: float = _number(env, "LOCAL_STT_MAX_AUDIO_SEC", 900.0, float)
