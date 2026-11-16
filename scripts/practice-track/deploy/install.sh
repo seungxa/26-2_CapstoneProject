@@ -76,11 +76,13 @@ fi
 install_packages() {
   step "System packages"
   export DEBIAN_FRONTEND=noninteractive
+  # A new VM runs apt-daily right after boot and holds the apt lock for minutes: wait for it instead of failing
+  local apt=(apt-get -o DPkg::Lock::Timeout=600 -q)
   # keep the image's firewall rules when iptables-persistent is (re)installed
   echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
   echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
-  apt-get update -q
-  apt-get install -y -q python3-venv python3-pip git curl gpg debian-keyring debian-archive-keyring \
+  "${apt[@]}" update
+  "${apt[@]}" install -y python3-venv python3-pip git curl gpg debian-keyring debian-archive-keyring \
     apt-transport-https iptables-persistent
   local keyring=/usr/share/keyrings/caddy-stable-archive-keyring.gpg list=/etc/apt/sources.list.d/caddy-stable.list
   if [[ ! -s $keyring || ! -s $list ]]; then
@@ -88,9 +90,9 @@ install_packages() {
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --batch --yes --dearmor -o "$keyring"
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > "$list"
     chmod o+r "$keyring" "$list"
-    apt-get update -q
+    "${apt[@]}" update
   fi
-  apt-get install -y -q caddy
+  "${apt[@]}" install -y caddy
   local version
   version=$(caddy version | awk '{print $1}')
   version=${version#v}

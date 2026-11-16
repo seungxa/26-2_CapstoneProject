@@ -115,3 +115,12 @@ def test_env_template_passes_the_production_check():
     assert s.practice_insights_enabled is False
     assert s.database_url.startswith("postgresql+psycopg://")
     assert not any("localhost" in o or "127.0.0.1" in o for o in s.cors_origins)
+
+
+def test_apt_waits_for_the_lock_held_after_first_boot():
+    """A new Ubuntu VM runs apt-daily right after boot; apt-get fails at once on its lock unless told to wait."""
+    calls = [line for line in (DEPLOY / "install.sh").read_text().splitlines()
+             if re.search(r"\bapt-get\b", line) and not line.lstrip().startswith("#")]
+    assert calls
+    assert all("DPkg::Lock::Timeout=" in line or "$apt" in line for line in calls), calls
+    assert re.search(r"^\s*(local\s+)?apt=\(apt-get -o DPkg::Lock::Timeout=600\b", (DEPLOY / "install.sh").read_text(), re.M)
