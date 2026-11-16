@@ -135,4 +135,22 @@ def test_rls_off_fails(database):
     with database.connect() as conn:
         conn.execute("alter table applications disable row level security")
     failed = [line for grade, line in _check_lines(database) if grade == "FAIL"]
-    assert any("row level security" in line and "applications" in line for line in failed), failed
+    assert any("row level security" in line and "alter table public.applications enable row level security" in line
+               for line in failed), failed
+
+
+def test_rls_off_in_an_applied_project_names_the_fix(database):
+    with database.connect() as conn:
+        conn.execute("alter table applications disable row level security")
+    rows = precheck(database)
+    assert verdict(rows) == "UPGRADE"
+    status, detail = tables(rows)["applications"]
+    assert status == "ours" and "alter table public.applications enable row level security" in detail
+
+
+def test_missing_bucket_in_an_applied_project_points_to_the_guide(cluster):
+    db = cluster.database()
+    with db.connect() as conn:
+        conn.execute("delete from storage.buckets where id = 'recordings'")
+    [(status, detail)] = [(s, d) for sec, item, s, d in precheck(db) if sec == "storage" and item == "bucket recordings"]
+    assert status == "absent" and "supabase-apply.md" in detail

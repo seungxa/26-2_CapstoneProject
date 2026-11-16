@@ -67,7 +67,7 @@ def test_complete_schema_and_private_bucket_pass(tmp_path):
     assert fails(lines) == [], lines
     assert ("SKIP" in [g for g, _ in lines])  # RLS is a PostgreSQL check
     assert any("private" in line for grade, line in lines if grade == "PASS")
-    assert any("ES256" in line for grade, line in lines if grade == "PASS")
+    assert any("ES256" in line and "--token" in line for grade, line in lines if grade == "WARN")
 
 
 def test_missing_table_fails(tmp_path):
@@ -83,7 +83,7 @@ def test_public_bucket_fails(tmp_path):
 @pytest.mark.parametrize("reply", [(404, {"error": "not found"}), (400, {"statusCode": "404", "error": "Bucket not found"})])
 def test_missing_bucket_fails(tmp_path, reply):
     lines = check_supabase.run_checks(settings(), sqlite_engine(tmp_path), http(bucket=reply))
-    assert any("schema.sql" in line for line in fails(lines))
+    assert any("schema.sql" in line and "supabase-apply.md" in line for line in fails(lines))
 
 
 def test_bad_service_key_fails(tmp_path):
@@ -139,3 +139,77 @@ def test_cli_compares_against_every_app_table(tmp_path):
                        timeout=60, env={"PATH": os.environ["PATH"], "HOME": str(tmp_path)})
     tables = [line for line in r.stdout.splitlines() if "tables:" in line]
     assert tables and tables[0].startswith("FAIL") and "applications" in tables[0], r.stdout + r.stderr
+
+
+# ───────── which key signs: published keys are not proof; a real access token is ─────────
+
+import time  # noqa: E402
+
+import jwt  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+
+ISSUER = "https://abc.supabase.co/auth/v1"
+
+
+def token(key, alg: str, kid: str | None = None, **claims) -> str:
+    body = {"sub": "00000000-0000-0000-0000-000000000001", "aud": "authenticated", "iss": ISSUER,
+            "exp": int(time.time()) + 600, **claims}
+    return jwt.encode(body, key, algorithm=alg, headers={"kid": kid} if kid else None)
+
+
+EC_KEY = ec.generate_private_key(ec.SECP256R1())
+EC_JWK = {**jwt.algorithms.ECAlgorithm.to_jwk(EC_KEY.public_key(), as_dict=True), "kid": "k1", "alg": "ES256"}
+
+
+def sign_in(lines) -> tuple[str, str]:
+    [line] = [line for line in lines if line[1].startswith("sign-in")]
+    return line
+
+
+def test_jwks_error_reply_is_not_called_legacy(tmp_path):
+    lines = check_supabase.run_checks(settings(), sqlite_engine(tmp_path), http(jwks=(540, {})))
+    grade, text = sign_in(lines)
+    assert grade == "FAIL" and "540" in text and "hs256" not in text
+
+
+def test_hs256_secret_alone_only_warns(tmp_path):
+    lines = check_supabase.run_checks(settings(SUPABASE_JWT_MODE="hs256", SUPABASE_JWT_SECRET="s"),
+                                      sqlite_engine(tmp_path), http())
+    grade, text = sign_in(lines)
+    assert grade == "WARN" and "--token" in text
+
+
+def test_hs256_token_with_jwks_mode_says_switch(tmp_path):
+    lines = check_supabase.run_checks(settings(), sqlite_engine(tmp_path), http(), token=token("s", "HS256"))
+    grade, text = sign_in(lines)
+    assert grade == "FAIL" and "SUPABASE_JWT_MODE=hs256" in text
+
+
+def test_hs256_token_is_verified_with_the_secret(tmp_path):
+    good = settings(SUPABASE_JWT_MODE="hs256", SUPABASE_JWT_SECRET="s")
+    assert sign_in(check_supabase.run_checks(good, sqlite_engine(tmp_path), http(), token=token("s", "HS256")))[0] == "PASS"
+    wrong = settings(SUPABASE_JWT_MODE="hs256", SUPABASE_JWT_SECRET="other")
+    grade, text = sign_in(check_supabase.run_checks(wrong, sqlite_engine(tmp_path), http(), token=token("s", "HS256")))
+    assert grade == "FAIL" and "SUPABASE_JWT_SECRET" in text
+
+
+def test_es256_token_with_hs256_mode_says_switch(tmp_path):
+    lines = check_supabase.run_checks(settings(SUPABASE_JWT_MODE="hs256", SUPABASE_JWT_SECRET="s"),
+                                      sqlite_engine(tmp_path), http(jwks=(200, {"keys": [EC_JWK]})),
+                                      token=token(EC_KEY, "ES256", kid="k1"))
+    grade, text = sign_in(lines)
+    assert grade == "FAIL" and "SUPABASE_JWT_MODE=jwks" in text
+
+
+def test_es256_token_is_verified_with_the_published_key(tmp_path):
+    lines = check_supabase.run_checks(settings(), sqlite_engine(tmp_path), http(jwks=(200, {"keys": [EC_JWK]})),
+                                      token=token(EC_KEY, "ES256", kid="k1"))
+    assert sign_in(lines)[0] == "PASS"
+
+
+def test_an_expired_token_still_proves_the_signing_key(tmp_path):
+    old = token("s", "HS256", exp=int(time.time()) - 60)
+    lines = check_supabase.run_checks(settings(SUPABASE_JWT_MODE="hs256", SUPABASE_JWT_SECRET="s"),
+                                      sqlite_engine(tmp_path), http(), token=old)
+    grade, text = sign_in(lines)
+    assert grade == "PASS" and "expired" in text

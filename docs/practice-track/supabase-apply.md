@@ -48,6 +48,8 @@
 
 **UPGRADE: 앱 테이블이 이미 있다** (예전에 적용했고 새 버전으로 올릴 때)
 - migration 6개를 파일 이름 순서대로 실행한다. 다시 실행해도 데이터가 바뀌거나 사라지지 않는다.
+- 점검 결과에서 테이블 줄이 `RLS off`면, 그 줄에 적힌 `alter table public.<테이블> enable row level security;`를 SQL Editor에서 실행한다. 정책은 이미 있어서 RLS만 다시 켜면 된다. migration은 처음 7개 테이블의 RLS를 다시 켜지 않는다.
+- 버킷 줄이 `absent`면 5절의 "버킷이 없을 때"를 따른다. migration은 버킷을 만들지 않는다.
 - `schema.sql`은 **다시 실행하지 않는다.** 정책을 이미 있는 이름으로 또 만들려다 오류로 멈춘다(그 앞까지의 문장은 이미 실행된 상태가 된다). 실수로 실행했다면 점검부터 다시 한다.
 
 **STOP: 아무것도 실행하지 않는다**
@@ -74,6 +76,16 @@ SQL Editor가 `drop policy` 같은 문장을 보고 "destructive operation" 경�
 
 Storage → Buckets에서 `recordings`가 있고 **Public이 꺼져 있는지** 본다. 공개 버킷이면 파일 주소만 알면 누구나 녹음을 들을 수 있다. 앱은 서버의 secret key로만 녹음을 읽고 쓴다.
 
+**버킷이 없을 때** (판정이 UPGRADE인데 버킷 줄이 `absent`):
+1. Storage → **New bucket** → 이름 `recordings`, **Public bucket은 끈 채로** 저장한다.
+2. 점검 결과의 `policy rec_own on storage.objects` 줄이 `absent`면, SQL Editor에서 아래를 실행한다(`schema.sql`의 같은 문장이다).
+
+```sql
+create policy rec_own on storage.objects for all
+  using (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
+```
+
 ## 6. 적용 뒤 연결 점검
 
 서버 설정 파일의 값으로 앱이 Supabase를 제대로 쓰는지 확인한다. 읽기만 한다.
@@ -89,7 +101,14 @@ sudo /opt/jobseeker/backend/.venv/bin/python /opt/jobseeker/scripts/practice-tra
 1. 저장소 **밖**에 설정 파일을 만든다. 예: `~/jobseeker-team.env`. 형식은 [`api.env.example`](../../scripts/practice-track/deploy/api.env.example)과 같다. `chmod 600`으로 나만 읽게 하고, 저장소에 넣지 않는다.
 2. `cd backend && .venv/bin/python ../scripts/practice-track/check_supabase.py --env-file ~/jobseeker-team.env`
 
-**결과:** 모든 줄이 `PASS`면 된다. 예시(버전과 키 수는 프로젝트마다 다르다. 앱이 쓰는 테이블은 `PRACTICE_INSIGHTS_ENABLED=false`면 13개, `true`면 `question_competencies`까지 14개다):
+**어떤 키로 로그인 토큰을 서명하는지 확인하기 (`--token`):** 공개된 서명 키만 보고는 프로젝트가 실제로 그 키로 서명하는지 알 수 없다. 예전 방식 프로젝트도 새 키를 미리 공개해 둘 수 있다. 그래서 `--token` 없이 돌리면 `sign-in` 줄은 WARN이다. 실제 토큰으로 확인하려면:
+1. 팀 웹에 로그인한다.
+2. 개발자 도구(F12) → Application(애플리케이션) → Local Storage → 팀 웹 주소 → `sb-<ref>-auth-token` 항목을 연다.
+3. 값 안의 `access_token` 문자열을 복사해 `--token '<복사한 값>'`으로 넘긴다.
+   - 이 토큰은 약 1시간 동안 그 계정의 임시 비밀번호와 같다. 다른 사람에게 보내거나 어디에 붙여 두지 않는다.
+   - 만료된 토큰이어도 서명 방식은 확인된다.
+
+**결과:** 모든 줄이 `PASS`면 된다(`--token` 없이 돌리면 `sign-in` 줄만 WARN). 예시(버전과 키 수는 프로젝트마다 다르다. 앱이 쓰는 테이블은 `PRACTICE_INSIGHTS_ENABLED=false`면 13개, `true`면 `question_competencies`까지 14개다):
 
 ```
 PASS  settings: complete
@@ -98,17 +117,20 @@ PASS  tables: all 13 app tables and their columns are present
 PASS  app startup check (Track): passes
 PASS  row level security: on for every app table
 PASS  storage: bucket recordings exists and is private
-PASS  sign-in: 2 signing key(s) published (ES256)
+PASS  sign-in: the app verifies this project's ES256 tokens
 ```
 
 | FAIL 문장 | 할 일 |
 |---|---|
 | `database: cannot connect … IPv6 only …` | `DATABASE_URL`을 **Session pooler** 주소로 바꾼다 |
 | `tables: missing …` 또는 `app startup check … requires manual migration …` | 3절의 판정에 맞게 빠진 파일을 실행한다 |
-| `row level security: off on …` | 그 테이블에 `schema.sql`의 정책이 적용되지 않았다. 점검(2절)부터 다시 한다 |
+| `row level security: off on …` | 문장 끝에 적힌 `alter table … enable row level security;`를 SQL Editor에서 실행한다 |
 | `storage: bucket recordings is public` | 5절대로 비공개로 바꾼다 |
+| `storage: bucket recordings does not exist …` | 판정이 NEW였다면 `schema.sql`을 실행한다. 이미 적용한 프로젝트면 5절의 "버킷이 없을 때" |
 | `storage: … refused the service key` | `SUPABASE_SERVICE_ROLE_KEY`를 다시 복사한다(secret key `sb_secret_…` 또는 예전 service_role key) |
 | `sign-in: … legacy JWT secret` | 예전 방식 프로젝트다. `SUPABASE_JWT_MODE=hs256`과 `SUPABASE_JWT_SECRET`(Project Settings → JWT Keys의 legacy secret)을 넣는다 |
+| `sign-in: … signs tokens with a signing key … set SUPABASE_JWT_MODE=jwks` | 새 방식 프로젝트다. `SUPABASE_JWT_MODE=jwks`로 바꾼다(secret은 필요 없다) |
+| `sign-in: unexpected reply … (is the project paused?)` | 서명 방식과는 상관없다. 대시보드에서 프로젝트가 일시정지(paused)됐는지 보고 다시 켠 뒤 점검한다 |
 
 ## 7. 되돌리기
 

@@ -103,7 +103,9 @@ def _schema(settings, engine) -> list[tuple[str, str]]:
                                  "where c.relnamespace = 'public'::regnamespace and c.relname = any(:names)"),
                             {"names": [t.name for t in Base.metadata.sorted_tables]}).all()
     off = sorted(name for name, enabled in rows if not enabled)
-    lines.append(("FAIL", f"row level security: off on {', '.join(off)}; signed-in users could read others' rows")
+    fix = " ".join(f"alter table public.{name} enable row level security;" for name in off)
+    lines.append(("FAIL", f"row level security: off on {', '.join(off)}; signed-in users could read others' rows. "
+                          f"In the SQL Editor run: {fix}")
                  if off else ("PASS", "row level security: on for every app table"))
     return lines
 
@@ -128,29 +130,84 @@ def _storage(settings, http) -> tuple[str, str]:
     if reply.status_code in (401, 403):
         return "FAIL", "storage: the project refused the service key; check SUPABASE_SERVICE_ROLE_KEY"
     if reply.status_code == 404 or "not found" in reply.text.lower():
-        return "FAIL", f"storage: bucket {bucket} does not exist; schema.sql adds it as a private bucket"
+        return "FAIL", (f"storage: bucket {bucket} does not exist; on a new project schema.sql adds it, on a project "
+                        "that already has the app tables add it by hand (supabase-apply.md 5)")
     return "FAIL", f"storage: unexpected reply {reply.status_code} for bucket {bucket}"
 
 
-def _sign_in(settings, http) -> tuple[str, str]:
-    if settings.jwt_mode == "hs256":
-        return (("PASS", "sign-in: HS256 secret is set") if settings.jwt_secret
-                else ("FAIL", "sign-in: SUPABASE_JWT_MODE=hs256 needs SUPABASE_JWT_SECRET"))
+def _published_keys(settings, http) -> tuple[list[dict] | None, str]:
+    """The project's published signing keys, or None and a reason when the endpoint did not answer normally."""
     url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
     try:
         reply = http.get(url, timeout=TIMEOUT_SEC)
-        keys = reply.json().get("keys", []) if reply.status_code == 200 else []
+        if reply.status_code != 200:
+            return None, f"unexpected reply {reply.status_code} from {url} (is the project paused?)"
+        keys = reply.json().get("keys", [])
     except Exception as e:
-        return "FAIL", f"sign-in: no reply from {url} ({type(e).__name__})"
+        return None, f"no usable reply from {url} ({type(e).__name__})"
+    return (keys if isinstance(keys, list) else []), ""
+
+
+def _verify_token(settings, http, token: str) -> tuple[str, str]:
+    """Which key signs the project's tokens, read from a real access token, then its signature checked like the app."""
+    import jwt
+
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return "FAIL", "sign-in: --token is not a JWT; copy the access_token value after signing in"
+    algorithm = header.get("alg")
+    if algorithm == "HS256":
+        if settings.jwt_mode != "hs256":
+            return "FAIL", ("sign-in: this project signs tokens with the legacy JWT secret (HS256): "
+                            "set SUPABASE_JWT_MODE=hs256 and SUPABASE_JWT_SECRET")
+        key = settings.jwt_secret
+    elif algorithm in ("RS256", "ES256"):
+        if settings.jwt_mode != "jwks":
+            return "FAIL", (f"sign-in: this project signs tokens with a signing key ({algorithm}): "
+                            "set SUPABASE_JWT_MODE=jwks")
+        keys, reason = _published_keys(settings, http)
+        match = [k for k in keys or [] if k.get("kid") == header.get("kid")]
+        if not match:
+            return "FAIL", f"sign-in: the token's key {header.get('kid')} is not published{'; ' + reason if reason else ''}"
+        key = jwt.PyJWK(match[0]).key
+    else:
+        return "FAIL", f"sign-in: the token is signed with {algorithm}, which the app does not accept"
+    try:
+        jwt.decode(token, key, algorithms=[algorithm], audience="authenticated",
+                   issuer=settings.supabase_url + "/auth/v1", options={"require": ["exp", "iss", "aud", "sub"]})
+    except jwt.ExpiredSignatureError:
+        return "PASS", f"sign-in: the app verifies this project's {algorithm} tokens (this token itself has expired)"
+    except jwt.InvalidSignatureError:
+        where = "SUPABASE_JWT_SECRET" if algorithm == "HS256" else "the published key"
+        return "FAIL", f"sign-in: the token's signature does not match {where}"
+    except jwt.PyJWTError as e:
+        return "FAIL", f"sign-in: the app would reject this token ({type(e).__name__}); check SUPABASE_URL"
+    return "PASS", f"sign-in: the app verifies this project's {algorithm} tokens"
+
+
+def _sign_in(settings, http, token: str | None) -> tuple[str, str]:
+    if token:
+        return _verify_token(settings, http, token)
+    confirm = "confirm with --token <access token> (supabase-apply.md 6)"
+    if settings.jwt_mode == "hs256":
+        if not settings.jwt_secret:
+            return "FAIL", "sign-in: SUPABASE_JWT_MODE=hs256 needs SUPABASE_JWT_SECRET"
+        return "WARN", f"sign-in: HS256 secret is set; the project may sign with a newer key instead: {confirm}"
+    keys, reason = _published_keys(settings, http)
+    if keys is None:
+        return "FAIL", f"sign-in: {reason}"
     if not keys:
         return "FAIL", ("sign-in: the project publishes no signing keys, so it signs with the legacy JWT secret: "
                         "set SUPABASE_JWT_MODE=hs256 and SUPABASE_JWT_SECRET")
     algorithms = ", ".join(sorted({str(k.get("alg", "?")) for k in keys}))
-    return "PASS", f"sign-in: {len(keys)} signing key(s) published ({algorithms})"
+    return "WARN", (f"sign-in: {len(keys)} signing key(s) published ({algorithms}); a key can be published before the "
+                    f"project signs with it: {confirm}")
 
 
-def run_checks(settings, engine, http) -> list[tuple[str, str]]:
-    """(grade, sentence) lines. `engine` is the database to read and `http` the client for Supabase Storage and Auth."""
+def run_checks(settings, engine, http, token: str | None = None) -> list[tuple[str, str]]:
+    """(grade, sentence) lines. `engine` is the database to read, `http` the client for Supabase Storage and Auth,
+    and `token` an optional access token of a signed-in user (shows which key really signs)."""
     from app.config import ConfigError
 
     try:
@@ -165,13 +222,14 @@ def run_checks(settings, engine, http) -> list[tuple[str, str]]:
     else:
         lines += [("SKIP", "tables: no database connection"), ("SKIP", "row level security: no database connection")]
     lines.append(_storage(settings, http))
-    lines.append(_sign_in(settings, http))
+    lines.append(_sign_in(settings, http, token))
     return lines
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env-file", required=True, help="the API's settings file, for example /etc/jobseeker/api.env")
+    parser.add_argument("--token", help="access token of a user signed in to the team web app (shows which key signs)")
     args = parser.parse_args(argv)
     os.environ.update(load_env_file(args.env_file))  # before the app reads its settings
     sys.path.insert(0, str(BACKEND))
@@ -183,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     url = settings.database_url
     engine = create_engine(url, connect_args={} if url.startswith("sqlite") else {"connect_timeout": TIMEOUT_SEC})
     with httpx.Client() as http:
-        lines = run_checks(settings, engine, http)
+        lines = run_checks(settings, engine, http, args.token)
     for grade, text in lines:
         print(f"{grade:4}  {text}")
     return 1 if any(grade == "FAIL" for grade, _ in lines) else 0

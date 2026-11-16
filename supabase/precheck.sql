@@ -75,12 +75,13 @@ report(sort, section, item, status, detail) as (
          case when not present then ''
               when cardinality(missing) > 0 then 'another table: missing app columns ' || array_to_string(missing, ', ')
               when rls then 'RLS on'
-              else 'RLS off' end
+              else 'RLS off: run  alter table public.' || tbl || ' enable row level security;' end
   from judged
   union all
   select 20, 'storage', 'bucket recordings',
          case when b.id is null then 'absent' else 'present' end,
-         case when b.id is null then 'schema.sql adds it as a private bucket'
+         case when b.id is null then 'NEW: schema.sql adds it as a private bucket. UPGRADE: add it by hand '
+                                     '(supabase-apply.md 5)'
               when b.public then 'PUBLIC: anyone with a file link can read recordings; make it private first'
               else 'private' end
   from (select 1) as one left join storage.buckets b on b.id = 'recordings'
