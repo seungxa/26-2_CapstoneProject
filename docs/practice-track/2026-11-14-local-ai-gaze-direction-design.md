@@ -141,6 +141,7 @@
   - 실패 항목은 사유와 함께 출력한다.
 - **`backend/.env.example`의 Supabase 연결 예시 보강.**
   - 구현 때 공식 문서로 확인할 것: Supabase 직결 주소가 IPv6 전용이면 Oracle VM(IPv4)에서는 세션 풀러 주소를 써야 할 수 있다.
+- **구현:** [2026-11-17-supabase-apply-plan.md](2026-11-17-supabase-apply-plan.md), 적용 절차는 [supabase-apply.md](supabase-apply.md).
 
 **A3. 크롬 확장 통합 계약 문서** (코드 수정 없음)
 - seungxa 확장(JobSeeker Apply 0.7.0)이 지원서 제출을 확인하면 기존 `POST /track/sync`를 부르는 방법을 정리한다.

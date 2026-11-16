@@ -77,6 +77,7 @@ sudo nano /etc/jobseeker/api.env
 
 - 프로젝트가 예전 JWT secret 방식이면 `SUPABASE_JWT_MODE=hs256`으로 바꾸고 `SUPABASE_JWT_SECRET`에 그 값을 넣는다. 새 프로젝트는 기본값 `jwks` 그대로 둔다.
 - `PRACTICE_INSIGHTS_ENABLED`는 팀 Supabase에 migration을 적용한 뒤(A2 작업)에만 `true`로 바꾼다.
+- 팀 Supabase에 앱 테이블을 넣는 순서와, 값을 채운 뒤 Supabase 연결만 따로 확인하는 도구(`check_supabase.py`)는 [supabase-apply.md](supabase-apply.md)에 있다.
 - 채운 파일은 저장소에 올리지 않는다. 비밀번호 관리자 같은 안전한 곳에 사본을 하나 둔다(서버를 다시 만들 때 쓴다).
 
 저장한 뒤:
