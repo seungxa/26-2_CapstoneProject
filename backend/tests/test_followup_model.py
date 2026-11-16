@@ -311,7 +311,7 @@ def test_health_reports_a_missing_library_before_loading(client, monkeypatch):
 @pytest.fixture
 def libs(monkeypatch):
     """Stand-in llama_cpp and huggingface_hub so the real loader runs without the packages or a network."""
-    rec = SimpleNamespace(cached=True, downloads=[], models=[])
+    rec = SimpleNamespace(cached=True, downloads=[], models=[], load_error=None)
 
     def hf_hub_download(repo_id, filename, cache_dir=None, local_files_only=False):
         rec.downloads.append({"repo_id": repo_id, "filename": filename, "cache_dir": cache_dir,
@@ -324,6 +324,8 @@ def libs(monkeypatch):
     class Llama:
         def __init__(self, **kwargs):
             rec.models.append(kwargs)
+            if rec.load_error is not None:
+                raise rec.load_error
 
     hub, llama = ModuleType("huggingface_hub"), ModuleType("llama_cpp")
     hub.hf_hub_download, llama.Llama = hf_hub_download, Llama
@@ -340,7 +342,7 @@ def test_default_loader_uses_the_cache_without_downloading(libs):
     assert libs.downloads == [{"repo_id": settings.followup_model_repo, "filename": settings.followup_model_file,
                                "cache_dir": None, "local_files_only": True}]
     assert libs.models == [{"model_path": f"/cache/{settings.followup_model_file}", "n_ctx": 2048,
-                            "n_threads": 2, "n_threads_batch": 2, "verbose": False}]
+                            "n_threads": 2, "n_threads_batch": 2, "use_mmap": False, "verbose": False}]
 
 
 def test_default_loader_downloads_once_when_missing(libs, monkeypatch, tmp_path):
@@ -431,3 +433,29 @@ def test_a_model_that_cannot_be_loaded_suggests_upgrading_the_library(fake_follo
 def test_requirements_need_the_tested_llama_cpp_version():
     lines = (BACKEND / "requirements-followup.txt").read_text().splitlines()
     assert "llama-cpp-python>=0.3.36" in lines  # the version tested with EXAONE 4 (followup-model-check.md)
+
+
+# ───────── python -m app.followup_model download ─────────
+
+def test_download_command_fetches_even_when_downloads_are_off(libs, monkeypatch, capsys):
+    libs.cached = False
+    monkeypatch.setattr(settings, "followup_allow_download", False)
+    assert followup_model._cli(["download"]) == 0
+    assert [d["local_files_only"] for d in libs.downloads] == [True, False]
+    assert len(libs.models) == 1  # loaded once with llama.cpp to prove the file works on this CPU
+    assert "ready: LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF/EXAONE-4.0-1.2B-Q4_K_M.gguf" in capsys.readouterr().out
+    assert settings.followup_allow_download is False  # the setting itself is left as it was
+
+
+def test_download_command_reports_a_load_failure(libs, capsys):
+    libs.load_error = ValueError("unknown model architecture: 'exaone4'")
+    assert followup_model._cli(["download"]) == 1
+    err = capsys.readouterr().err
+    # the plain reason for the operator; the log line before it keeps the library's own message for debugging
+    assert "The follow-up model could not be loaded." in err
+
+
+@pytest.mark.parametrize("argv", [[], ["x"], ["download", "extra"]])
+def test_download_command_rejects_other_arguments(argv, capsys):
+    assert followup_model._cli(argv) == 2
+    assert "usage: python -m app.followup_model download" in capsys.readouterr().err

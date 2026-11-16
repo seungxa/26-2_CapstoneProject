@@ -19,6 +19,7 @@ model recovers by itself (e.g. the network was not up at boot). A missing librar
 llama_cpp and huggingface_hub are imported only inside the loader: the app and tests run without them
 (backend/requirements-followup.txt installs them).
 """
+import copy
 import importlib.util
 import logging
 import sys
@@ -108,17 +109,20 @@ def _loader(cfg):
             raise FileNotFoundError(f"{repo}/{name} is not in the cache and FOLLOWUP_ALLOW_DOWNLOAD is false") from None
         log.info("follow-up model: downloading %s/%s (first use only)", repo, name)
         path = hf_hub_download(repo_id=repo, filename=name, cache_dir=cache)
-    # n_threads_batch too: llama.cpp would otherwise use every core for reading the prompt
+    # n_threads_batch too: llama.cpp would otherwise use every core for reading the prompt.
+    # use_mmap=False reads the weights into the process's own memory instead of mapping the file: the model then counts
+    # as used memory (an Oracle Always Free A1 instance under 20% memory use for 7 days may be reclaimed), and the OS
+    # cannot drop its pages while the server is idle, so the first request after a quiet night does not read them again
     return Llama(model_path=path, n_ctx=N_CTX, n_threads=cfg.followup_threads,
-                 n_threads_batch=cfg.followup_threads, verbose=False)
+                 n_threads_batch=cfg.followup_threads, use_mmap=False, verbose=False)
 
 
-def _describe(e: Exception) -> str:
+def _describe(e: Exception, allow_download: bool | None = None) -> str:
     """Why the model is unavailable, safe to show on /health (no paths or raw library messages)."""
     if isinstance(e, ImportError):
         return _NOT_INSTALLED
     if isinstance(e, OSError):
-        if not settings.followup_allow_download:
+        if not (settings.followup_allow_download if allow_download is None else allow_download):
             return ("The follow-up model is not in the local cache and downloading is turned off. "
                     "The server checks the cache again in a few minutes.")
         return ("The follow-up model could not be downloaded. Check the network connection; "
@@ -284,3 +288,25 @@ def preload() -> None:
         _runner.load()
     except Exception:
         pass  # load() logged it and status() reports it
+
+
+def _cli(argv: list[str]) -> int:
+    """python -m app.followup_model download: put the model file in the cache before the server needs it, and open
+    it once with llama.cpp to prove it works on this CPU. Downloads even when FOLLOWUP_ALLOW_DOWNLOAD is false."""
+    if argv != ["download"]:
+        print("usage: python -m app.followup_model download", file=sys.stderr)
+        return 2
+    cfg = copy.copy(settings)
+    cfg.followup_allow_download = True
+    try:
+        _loader(cfg)
+    except Exception as e:
+        log.warning("follow-up model: download or load failed: %r", e)
+        print(_describe(e, allow_download=True), file=sys.stderr)
+        return 1
+    print(f"ready: {cfg.followup_model_repo}/{cfg.followup_model_file}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_cli(sys.argv[1:]))
