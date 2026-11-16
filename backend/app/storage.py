@@ -26,10 +26,10 @@ def _use_supabase() -> bool:
     return bool(settings.supabase_url and settings.supabase_service_key)
 
 
-def _sb_headers() -> dict[str, str]:
+def _sb_headers(key: str | None = None) -> dict[str, str]:
     """The legacy service_role key is a JWT and is sent in both headers. A new secret key (sb_secret_…) is not a JWT:
-    Supabase rejects it in Authorization: Bearer, so it is sent in apikey only."""
-    key = settings.supabase_service_key
+    Supabase rejects it in Authorization: Bearer, so it is sent in apikey only. `key` defaults to the configured one."""
+    key = settings.supabase_service_key if key is None else key
     if key.startswith("sb_secret_"):
         return {"apikey": key}
     return {"Authorization": f"Bearer {key}", "apikey": key}
