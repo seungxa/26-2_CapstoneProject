@@ -1,0 +1,25 @@
+# JobSeeker practice API. Installed to /etc/systemd/system/ by install.sh. Caddy forwards https to 127.0.0.1:8000.
+# One worker: the speech and follow-up models live in this process and each runs one request at a time.
+[Unit]
+Description=JobSeeker practice API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=jobseeker
+Group=jobseeker
+WorkingDirectory=/opt/jobseeker/backend
+EnvironmentFile=/etc/jobseeker/api.env
+Environment=HF_HOME=/var/lib/jobseeker/hf HF_HUB_DISABLE_TELEMETRY=1 PYTHONUNBUFFERED=1
+ExecStart=/opt/jobseeker/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jobseeker
+
+[Install]
+WantedBy=multi-user.target
