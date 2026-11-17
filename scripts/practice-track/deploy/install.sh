@@ -55,6 +55,10 @@ place_files() {
   install -d -m 0750 "$prefix/etc/jobseeker"
   sed "s/@DOMAIN@/$domain/g" "$here/Caddyfile" > "$prefix/etc/caddy/Caddyfile.new"
   chmod 0644 "$prefix/etc/caddy/Caddyfile.new"
+  if [[ $files_only == false ]]; then
+    # Check the new file before it replaces the working one: a bad file would take https down at the next restart
+    caddy validate --config "$prefix/etc/caddy/Caddyfile.new" --adapter caddyfile
+  fi
   mv "$prefix/etc/caddy/Caddyfile.new" "$prefix/etc/caddy/Caddyfile"
   install -m 0644 "$here/jobseeker-api.service" "$prefix/etc/systemd/system/jobseeker-api.service"
   if [[ ! -e $prefix$env_file ]]; then
@@ -77,7 +81,8 @@ install_packages() {
   step "System packages"
   export DEBIAN_FRONTEND=noninteractive
   # A new VM runs apt-daily right after boot and holds the apt lock for minutes: wait for it instead of failing
-  local apt=(apt-get -o DPkg::Lock::Timeout=600 -q)
+  # --force-confold: a Caddy upgrade keeps the Caddyfile this script wrote instead of stopping to ask
+  local apt=(apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold -q)
   # keep the image's firewall rules when iptables-persistent is (re)installed
   echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
   echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
@@ -163,7 +168,9 @@ run_as_service() {
 download_models() {
   step "Models (first time: a few minutes)"
   run_as_service app.stt download
-  run_as_service app.followup_model download
+  # The follow-up model is optional (fixed questions are used without it): a failure is a warning, not the end
+  run_as_service app.followup_model download ||
+    echo "Warning: the follow-up model could not be prepared; the app uses fixed follow-up questions. See 'Troubleshooting' in docs/practice-track/deploy-oracle.md" >&2
 }
 
 install_packages
@@ -171,8 +178,8 @@ create_user
 step "Config files"
 place_files
 install_python
-start_services
 open_firewall
+start_services
 download_models
 
 step "API"

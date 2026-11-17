@@ -179,7 +179,7 @@ sudo /opt/jobseeker/scripts/practice-track/deploy/install.sh <이름>.duckdns.or
 ```bash
 sudo apt-get install -y build-essential cmake
 sudo CMAKE_ARGS="-DGGML_NATIVE=ON" /opt/jobseeker/backend/.venv/bin/pip install --no-binary llama-cpp-python \
-  --force-reinstall llama-cpp-python==0.3.36
+  --force-reinstall --no-deps llama-cpp-python==0.3.36
 sudo systemctl restart jobseeker-api
 ```
 

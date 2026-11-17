@@ -15,7 +15,8 @@ def make_engine(url: str) -> Engine:
     """DB 엔진. SQLite는 연결마다 외래 키를 켠다(기본은 꺼져 있다): Supabase(Postgres)처럼 없는 행을 가리키지 못하고
     on delete cascade·set null도 같게 동작한다."""
     sqlite = url.startswith("sqlite")
-    eng = create_engine(url, connect_args={"check_same_thread": False} if sqlite else {})
+    # Postgres: check a pooled connection before reuse (the Supabase pooler closes idle ones)
+    eng = create_engine(url, connect_args={"check_same_thread": False} if sqlite else {}, pool_pre_ping=not sqlite)
     if sqlite:
         @event.listens_for(eng, "connect")
         def _foreign_keys(dbapi_conn, _record):

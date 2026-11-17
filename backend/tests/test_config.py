@@ -99,3 +99,10 @@ def test_supabase_uri_uses_psycopg(given, used):
 def test_stt_preload_defaults_off_and_reads_env():
     assert Settings({}).local_stt_preload is False
     assert Settings({"LOCAL_STT_PRELOAD": "true"}).local_stt_preload is True
+
+
+def test_postgres_connections_are_checked_before_reuse():
+    """The Supabase pooler drops idle connections; without a check the first request after a quiet spell fails."""
+    from app.db import make_engine
+
+    assert make_engine("postgresql+psycopg://u@h/db").pool._pre_ping is True

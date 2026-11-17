@@ -124,3 +124,26 @@ def test_apt_waits_for_the_lock_held_after_first_boot():
     assert calls
     assert all("DPkg::Lock::Timeout=" in line or "$apt" in line for line in calls), calls
     assert re.search(r"^\s*(local\s+)?apt=\(apt-get -o DPkg::Lock::Timeout=600\b", (DEPLOY / "install.sh").read_text(), re.M)
+
+
+def _main_steps() -> list[str]:
+    """The install steps in the order the full run calls them (the lines after the function definitions)."""
+    text = (DEPLOY / "install.sh").read_text()
+    body = text[text.index("\ninstall_packages\n"):]
+    return [line.strip() for line in body.splitlines() if re.fullmatch(r"\s*[a-z_]+\s*", line)]
+
+
+def test_the_firewall_opens_before_caddy_asks_for_a_certificate():
+    steps = _main_steps()
+    assert steps.index("open_firewall") < steps.index("start_services")
+
+
+def test_caddy_upgrades_keep_the_installed_caddyfile_and_a_new_file_is_checked_before_it_replaces_the_old():
+    text = (DEPLOY / "install.sh").read_text()
+    assert "Dpkg::Options::=--force-confold" in text
+    assert re.search(r"caddy validate --config \"\$prefix/etc/caddy/Caddyfile\.new\"", text)
+
+
+def test_a_follow_up_model_failure_does_not_stop_the_install():
+    text = (DEPLOY / "install.sh").read_text()
+    assert re.search(r"run_as_service app\.followup_model download \|\|", text)

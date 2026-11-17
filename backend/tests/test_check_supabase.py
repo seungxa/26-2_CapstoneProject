@@ -213,3 +213,19 @@ def test_an_expired_token_still_proves_the_signing_key(tmp_path):
                                       sqlite_engine(tmp_path), http(), token=old)
     grade, text = sign_in(lines)
     assert grade == "PASS" and "expired" in text
+
+
+def test_a_non_json_bucket_reply_is_a_failure_not_a_crash(tmp_path):
+    def handle(request):
+        if request.url.path.startswith("/storage/"):
+            return httpx.Response(200, text="<html>proxy</html>")
+        return httpx.Response(200, json={"keys": [JWK]})
+    lines = check_supabase.run_checks(settings(), sqlite_engine(tmp_path), httpx.Client(transport=httpx.MockTransport(handle)))
+    assert any(line.startswith("storage:") for line in fails(lines))
+
+
+def test_an_empty_database_url_does_not_create_a_local_file(tmp_path):
+    target = tmp_path / "would-be-created.db"
+    lines = check_supabase.run_checks(settings(DATABASE_URL=""), create_engine(f"sqlite:///{target}"), http())
+    assert any("SQLite" in line for line in fails(lines))
+    assert not target.exists()

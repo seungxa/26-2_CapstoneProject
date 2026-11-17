@@ -54,6 +54,10 @@ def _database(settings, engine) -> tuple[list[tuple[str, str]], bool]:
     if url.get_backend_name() == "sqlite":
         lines.append(("FAIL", "database: DATABASE_URL is empty or SQLite: the app would use a local SQLite file, "
                               "not Supabase"))
+        sqlite_file = engine.url.database
+        # Never open a missing SQLite file: that would create it (as root under sudo)
+        if engine.dialect.name == "sqlite" and sqlite_file and not Path(sqlite_file).exists():
+            return lines, False
     try:
         with engine.connect() as conn:
             query = "select version()" if engine.dialect.name == "postgresql" else "select sqlite_version()"
@@ -123,7 +127,11 @@ def _storage(settings, http) -> tuple[str, str]:
     except Exception as e:
         return "FAIL", f"storage: no reply from {settings.supabase_url} ({type(e).__name__})"
     if reply.status_code == 200:
-        if reply.json().get("public"):
+        try:
+            public = reply.json().get("public")
+        except ValueError:
+            return "FAIL", f"storage: the reply for bucket {bucket} is not JSON; check SUPABASE_URL"
+        if public:
             return "FAIL", (f"storage: bucket {bucket} is public: anyone with a file link can read recordings; "
                             "make it private in Storage")
         return "PASS", f"storage: bucket {bucket} exists and is private"
