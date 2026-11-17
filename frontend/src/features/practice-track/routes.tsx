@@ -10,6 +10,7 @@ import TrackList from './pages/TrackList';
 import ApplicationPage from './pages/ApplicationPage';
 import StatsPage from './pages/StatsPage';
 import TrackBoard from './pages/TrackBoard';
+import TrackCalendar from './pages/TrackCalendar';
 import {GAZE_LAB} from './video/debug';
 const GazeLab=GAZE_LAB?lazy(()=>import('./pages/GazeLab')):null;
 const GazeDirectionLab=GAZE_LAB?lazy(()=>import('./pages/GazeDirectionLab')):null;
@@ -20,5 +21,5 @@ export function PracticeFeature(){return <FeatureBoundary section="practice"><Ro
  {GazeDirectionLab&&<Route path="dev/gaze-direction" element={<Suspense fallback={<p>Loading…</p>}><GazeDirectionLab/></Suspense>}/>}
 </Routes></FeatureBoundary>;}
 export function TrackFeature(){return <FeatureBoundary section="track"><Routes>
- <Route index element={<TrackList/>}/><Route path="board" element={<TrackBoard/>}/><Route path="stats" element={<StatsPage/>}/><Route path=":id" element={<ApplicationPage/>}/>
+ <Route index element={<TrackList/>}/><Route path="board" element={<TrackBoard/>}/><Route path="calendar" element={<TrackCalendar/>}/><Route path="stats" element={<StatsPage/>}/><Route path=":id" element={<ApplicationPage/>}/>
 </Routes></FeatureBoundary>;}
