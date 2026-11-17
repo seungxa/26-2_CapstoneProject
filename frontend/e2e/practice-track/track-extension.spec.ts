@@ -10,8 +10,12 @@ async function popup(page: import('@playwright/test').Page, existing = false) {
     const listeners: ((changes: object, area: string) => void)[] = [];
     const session: Record<string, string> = { accessToken: "account-a-test" };
     let reads = 0;
+    const calls: unknown[] = [];
+    (window as any).extensionCalls = () => calls;
     (window as any).chrome = {
-      tabs: { query: async () => [{ id: 1, url: "https://example.com/job/1", title: "[회사] 개발자" }], create: async () => {} },
+      tabs: { query: async () => [{ id: 1, windowId: 9, url: "https://example.com/job/1", title: "[회사] 개발자" }], create: async () => {} },
+      sidePanel: { open: async (options: unknown) => { calls.push({ sidePanel: options }); } },
+      runtime: { sendMessage: async (message: unknown) => { calls.push({ message }); return { ok: true }; } },
       scripting: { executeScript: async () => { reads++; return [{ result: { url: "https://example.com/job/1", title: "[회사] 개발자", ogTitle: "", siteName: "", h1: "" } }]; } },
       storage: {
         sync: { get: async () => ({ apiUrl: location.origin + "/fake-api" }) },
@@ -28,7 +32,7 @@ async function popup(page: import('@playwright/test').Page, existing = false) {
   const saved = { id: "example-id", company: "회사", position: "개발자", job_category: "개발", url: "https://example.com/job/1", stage: "서류", status: "진행중" };
   await page.route("**/extension-fixture/**", async (route) => {
     const name = new URL(route.request().url()).pathname.split('/').pop() || "popup.html";
-    await route.fulfill({ body: await readFile(resolve('../extension-track', name)), contentType: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html' });
+    await route.fulfill({ body: await readFile(resolve('../extension', name)), contentType: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html' });
   });
   await page.route("**/fake-api/track/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -81,4 +85,16 @@ test("login CTA requires configured team URL instead of assuming a web login rou
   await page.getByRole('button', { name: '지원 완료로 표시' }).click();
   await page.getByRole('button', { name: '다시 로그인' }).click();
   await expect(page.getByRole('alert')).toContainText('팀 로그인 주소');
+});
+
+test("Fill this application opens the side panel and asks the background to connect the tab", async ({ page }) => {
+  await popup(page);
+  const fill = page.getByRole('button', { name: '이 지원서 채우기' });
+  await expect(fill).toBeEnabled();
+  await page.evaluate(() => { window.close = () => {}; });
+  await fill.click();
+  await expect.poll(() => page.evaluate(() => (window as any).extensionCalls())).toEqual([
+    { sidePanel: { windowId: 9 } },
+    { message: { type: 'JS_CONNECT_TAB', tabId: 1 } },
+  ]);
 });

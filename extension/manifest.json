@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "JobSeeker Apply",
-  "version": "0.7.0",
-  "description": "Fill job applications from your saved profile.",
+  "name": "JobSeeker",
+  "version": "0.8.0",
+  "description": "Save job postings to your application tracker and fill applications from your saved profile.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArwRRAkAniQsHtzab6FFpE+NTbX+otJE+IpL+ovXcjdYJHELxb7hPpSLTYk0DZVAcKUtxYocyfndG93gqmIGz1IipAkE4jTMZklJa4Wj+aSypiNgrjXnBWDudJlPuOhNKzHar1fGqblkZgE+QGV6TdJujyyrFdHb4XsDomk2Ut8ia60sUiZBj0cWaHREu3LMbZO4SqY0GU2mkR+Oyz192iDaldOKTGKRWmjwGpBrRZS1kGgAx3KvutQcsc/yQCWZefYab02T7Hr5S1g7iYGz9UJ6YpmmPFOAwhwUJh7WCPT91+OAkZOcMB1F1jlVwwANiz9XZ84nAbNOZgJC1MQUiyQIDAQAB",
   "permissions": [
     "storage",
     "activeTab",
@@ -17,11 +18,32 @@
     "http://127.0.0.1/*",
     "https://*.incruit.com/*",
     "https://*.saramin.co.kr/*",
-    "https://*.jobkorea.co.kr/*"
+    "https://*.jobkorea.co.kr/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://team-api.duckdns.org/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
-    "default_title": "Open JobSeeker"
+    "default_popup": "popup.html",
+    "default_title": "JobSeeker",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "options.html",
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -29,8 +51,10 @@
   "side_panel": {
     "default_path": "panel.html"
   },
-  "optional_host_permissions": [
-    "http://*/*",
-    "https://*/*"
-  ]
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5173/*",
+      "http://127.0.0.1:5173/*"
+    ]
+  }
 }

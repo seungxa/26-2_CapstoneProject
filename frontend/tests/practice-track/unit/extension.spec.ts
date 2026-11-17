@@ -1,7 +1,7 @@
 // extension-track(빌드 없는 MV3 확장)의 순수 함수. chrome API는 가짜 객체로 대신한다(브라우저·확장 설치 없음)
 import { expect, test } from "@playwright/test";
-import { guessJobCategory, guessPosting } from "../../../../extension-track/extract.js";
-import { getAccessToken, hostPermissionWarning, setAccessToken } from "../../../../extension-track/settings.js";
+import { guessJobCategory, guessPosting } from "../../../../extension/extract.js";
+import { getAccessToken, hostPermissionWarning, setAccessToken } from "../../../../extension/settings.js";
 
 const page = (p: Partial<{ url: string; title: string; ogTitle: string; siteName: string; h1: string }>) =>
   ({ url: "https://example.com/jobs/1", title: "", ogTitle: "", siteName: "", h1: "", ...p });
@@ -73,7 +73,7 @@ test("warns when the API address is not covered by host_permissions", () => {
   expect(hostPermissionWarning("not a url", manifest)).toContain("주소");
 });
 
-import * as extensionApi from "../../../../extension-track/api.js";
+import * as extensionApi from "../../../../extension/api.js";
 
 test("savePosting always sends explicit submitted false and no harvested essays", async () => {
   fakeChrome();

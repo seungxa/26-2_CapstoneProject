@@ -158,6 +158,21 @@ async function loadRecent(mine = generation) {
   }
 }
 
+// 이 지원서 채우기: 사이드 패널은 사용자 클릭 안에서만 열 수 있어서, 탭은 팝업을 열 때 미리 찾아 두고
+// 클릭하면 먼저 패널을 연 뒤 배경에 탭 연결(자동입력 준비)을 맡긴다
+let fillTab = null;
+targetTab().then((tab) => {
+  fillTab = tab;
+  $("fill").disabled = !(tab?.url && /^https?:/.test(tab.url));
+}).catch(() => {});
+$("fill").onclick = () => {
+  if (!fillTab) return;
+  chrome.sidePanel.open({ windowId: fillTab.windowId }).catch((error) => showError(error.message));
+  chrome.runtime.sendMessage({ type: "JS_CONNECT_TAB", tabId: fillTab.id })
+    .then((reply) => { if (reply?.error) showError(reply.error); else window.close(); })
+    .catch((error) => showError(error.message));
+};
+
 $("open-track").onclick = () => openWeb("/track");
 $("open-practice").onclick = () => openWeb("/practice");
 

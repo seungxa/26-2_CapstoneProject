@@ -3,16 +3,23 @@ import { loadSettings, isReady, pickCandidate } from './llm.js';
 // Like the working PoC: start the connection from the actual toolbar event,
 // while keeping the existing side panel UI. Known hosts have persistent access.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
-chrome.action.onClicked.addListener(tab => {
-  chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
-  injectIntoTab(chrome, tab).then(() => {
+// 0.8.0: the toolbar icon opens the popup (action.default_popup), so onClicked no longer fires there. The popup's
+// "Fill this application" button opens the side panel itself (user gesture) and sends JS_CONNECT_TAB, which runs the
+// same connection as the old icon click. The onClicked listener stays for a build without the popup.
+function connectTab(tab) {
+  return injectIntoTab(chrome, tab).then(() => {
     chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#24644e' });
     chrome.action.setBadgeText({ tabId: tab.id, text: 'ON' });
     if(tab.openerTabId)bindAddress(tab.id,tab.openerTabId);
   }).catch(async error => {
     await chrome.storage.session.set({ [`connection_${tab.id}`]: error.message });
     chrome.action.setBadgeText({ tabId: tab.id, text: '!' });
+    throw error;
   });
+}
+chrome.action.onClicked.addListener(tab => {
+  chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
+  connectTab(tab).catch(() => {});
 });
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -53,6 +60,9 @@ chrome.tabs.onUpdated.addListener((id,change,tab)=>{if(change.status==='complete
 chrome.tabs.onRemoved.addListener(id=>{recentChildren.delete(id);chrome.storage.session.remove(`address_${id}`);});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.id!==chrome.runtime.id)return;
+  if(message.type==='JS_CONNECT_TAB'&&!sender.tab&&Number.isInteger(message.tabId)){
+    chrome.tabs.get(message.tabId).then(connectTab).then(()=>respond({ok:true})).catch(error=>respond({error:error.message}));return true;
+  }
   if(message.type==='JS_RESUME_ADDRESS'&&!sender.tab){
     chrome.tabs.get(message.tabId).then(tab=>tab.openerTabId?bindAddress(tab.id,tab.openerTabId):null).then(()=>respond({ok:true})).catch(error=>respond({error:error.message}));return true;
   }
