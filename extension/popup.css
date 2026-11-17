@@ -52,3 +52,18 @@ footer { border-top: 1px solid var(--border); padding-top: 12px; }
 
 button.wide { width: 100%; }
 #autofill { margin-bottom: 4px; }
+
+.due-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.due-list li { display: flex; gap: 6px; align-items: center; padding: 3px 0; cursor: pointer; }
+.chip.due { font-variant-numeric: tabular-nums; }
+#beads-box { margin: 8px 0; }
+#beads-box summary { cursor: pointer; font-weight: 600; }
+.beads-wrap { position: relative; width: 150px; height: 150px; margin: 8px auto; }
+.beads { position: absolute; inset: 0; }
+.bead { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%;
+  background: #cbd5e1; transform: rotate(calc(var(--i) * 30deg)) translateY(-62px); transition: background .2s, transform .2s; }
+.bead.lit { background: #2563eb; transform: rotate(calc(var(--i) * 30deg)) translateY(-62px) scale(1.25); }
+.bead-press { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 84px; height: 84px; border-radius: 50%; font-size: 12px; }
+.center { text-align: center; }
+@media (prefers-reduced-motion: reduce) { .bead { transition: none; } }
+.due-open { display: flex; gap: 6px; align-items: center; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }

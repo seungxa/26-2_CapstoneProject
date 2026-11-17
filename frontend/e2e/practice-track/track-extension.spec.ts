@@ -5,7 +5,13 @@ import { resolve } from "node:path";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "popup lifecycle"));
 
-async function popup(page: import('@playwright/test').Page, existing = false) {
+function plus(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function popup(page: import('@playwright/test').Page, existing = false, due: object[] = []) {
   await page.addInitScript(() => {
     const listeners: ((changes: object, area: string) => void)[] = [];
     const session: Record<string, string> = { accessToken: "account-a-test" };
@@ -25,6 +31,10 @@ async function popup(page: import('@playwright/test').Page, existing = false) {
           remove: async () => { const oldValue = session.accessToken; delete session.accessToken; listeners.forEach((f) => f({ accessToken: { oldValue } }, "session")); },
         },
         onChanged: { addListener: (f: typeof listeners[number]) => listeners.push(f), removeListener: () => {} },
+        local: {
+          get: async (key: string) => { const raw = sessionStorage.getItem(key); return raw ? { [key]: JSON.parse(raw) } : {}; },
+          set: async (values: Record<string, unknown>) => { for (const [k, v] of Object.entries(values)) sessionStorage.setItem(k, JSON.stringify(v)); },
+        },
       },
     };
     (window as any).pageReads = () => reads;
@@ -35,7 +45,9 @@ async function popup(page: import('@playwright/test').Page, existing = false) {
     await route.fulfill({ body: await readFile(resolve('../extension', name)), contentType: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html' });
   });
   await page.route("**/fake-api/track/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (url.searchParams.get('sort') === 'due') return route.fulfill({ json: due });
     await route.fulfill({ json: path.endsWith('/stats') ? { total: existing ? 1 : 0, status: { 진행중: 1, 합격: 0 } } : path.endsWith('/sync') ? { created: false } : existing ? [saved] : [] });
   });
   await page.goto('/extension-fixture/popup.html');
@@ -97,4 +109,44 @@ test("Fill this application opens the side panel and asks the background to conn
     { sidePanel: { windowId: 9 } },
     { message: { type: 'JS_CONNECT_TAB', tabId: 1 } },
   ]);
+});
+
+test("upcoming deadlines and today's tasks show with D-day", async ({ page }) => {
+  const app = (id: string, company: string, extra: object) => ({ id, company, position: "개발자", stage: "서류", status: "진행중", applied_at: null, deadline: null, next_step_on: null, next_step: null, ...extra });
+  await popup(page, false, [
+    app("a", "오늘회사", { deadline: plus(0) }),
+    app("b", "닷새회사", { applied_at: plus(-3), next_step_on: plus(5), next_step: "1차 면접" }),
+    app("c", "먼회사", { deadline: plus(20) }),
+  ]);
+  const today = page.getByRole("region", { name: "오늘 할 일" });
+  await expect(today.getByRole("listitem")).toHaveCount(1);
+  await expect(today).toContainText("D-day");
+  await expect(today).toContainText("오늘회사");
+  const soon = page.getByRole("region", { name: "다가오는 일정" });
+  await expect(soon.getByRole("listitem")).toHaveCount(2);
+  await expect(soon.getByRole("listitem").nth(1)).toContainText("D-5");
+  await expect(soon.getByRole("listitem").nth(1)).toContainText("1차 면접");
+  await expect(soon).not.toContainText("먼회사");
+});
+
+test("saving a posting sends its deadline", async ({ page }) => {
+  await popup(page);
+  await page.locator('#company').fill('회사');
+  await page.locator('#position').fill('개발자');
+  await page.getByLabel('마감일').fill(plus(7));
+  const body = page.waitForRequest((r) => r.url().endsWith('/track/sync'));
+  await page.getByRole('button', { name: '지원 관리에 저장' }).click();
+  expect((await body).postDataJSON()).toMatchObject({ deadline: plus(7) });
+});
+
+test("the cyber prayer beads count presses and keep them after reopening", async ({ page }) => {
+  await popup(page);
+  const bead = page.getByRole('button', { name: '한 알 넘기기' });
+  for (let i = 0; i < 3; i++) await bead.click();
+  await expect(page.getByTestId('beads-count')).toHaveText('오늘 3번 · 모두 3번');
+  await expect(page.locator('.bead.lit')).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByTestId('beads-count')).toHaveText('오늘 3번 · 모두 3번');
+  await page.getByRole('button', { name: '한 알 넘기기' }).press('Space');
+  await expect(page.getByTestId('beads-count')).toHaveText('오늘 4번 · 모두 4번');
 });

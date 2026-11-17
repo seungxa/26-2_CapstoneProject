@@ -53,6 +53,8 @@ const qs = (p) => {
 export const api = {
   applications: (filter = {}) => req("GET", `/track/applications${qs(filter)}`),
   stats: () => req("GET", "/track/stats"),
+  /** 다가오는 날짜가 가까운 순(서버 sort=due) */
+  upcoming: () => req("GET", "/track/applications?sort=due"),
   /** URL 기준으로 지원 건을 만들거나 갱신한다(① 자동입력과 같은 엔드포인트). */
   savePosting: (p) =>
     req("POST", "/track/sync", {
@@ -62,5 +64,6 @@ export const api = {
       url: p.url,
       essays: [],
       submitted: p.submitted === true,
+      ...(p.deadline ? { deadline: p.deadline } : {}),
     }),
 };

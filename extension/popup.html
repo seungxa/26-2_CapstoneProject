@@ -19,6 +19,16 @@
       <p class="small muted">저장한 프로필로 이 페이지의 지원서를 채워요. 옆 패널에서 확인한 뒤 넣어요.</p>
     </section>
 
+    <section id="today-box" aria-labelledby="today-title" hidden>
+      <h2 id="today-title">오늘 할 일</h2>
+      <ul id="today-list" class="due-list"></ul>
+    </section>
+
+    <section id="soon-box" aria-labelledby="soon-title" hidden>
+      <h2 id="soon-title">다가오는 일정</h2>
+      <ul id="soon-list" class="due-list"></ul>
+    </section>
+
     <section id="posting">
       <h2>이 공고 저장</h2>
       <div id="existing" hidden>
@@ -44,6 +54,7 @@
               <option>데이터</option><option>디자인</option><option>기타</option>
             </select>
           </label>
+          <label>마감일<input type="date" id="deadline" /></label>
           <label class="check"><input type="checkbox" id="submitted" />지원 완료</label>
         </div>
         <p class="small muted">회사와 직무는 페이지 제목으로 추정한 값이에요. 맞는지 확인해 주세요.</p>
@@ -59,6 +70,16 @@
       </div>
       <ul id="recent"></ul>
     </section>
+
+    <details id="beads-box">
+      <summary>사이버 염주</summary>
+      <div class="beads-wrap">
+        <div class="beads" aria-hidden="true"></div>
+        <button id="bead" class="bead-press">한 알 넘기기</button>
+      </div>
+      <p class="small center" data-testid="beads-count" id="beads-count" aria-live="polite"></p>
+      <p class="small center accent" id="beads-cheer" hidden>오늘도 수고했어요</p>
+    </details>
 
     <footer class="row">
       <button id="open-track" class="grow">대시보드 열기</button>

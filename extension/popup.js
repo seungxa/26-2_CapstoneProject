@@ -1,6 +1,8 @@
 import { api, ApiError } from "./api.js";
 import { guessPosting, readPage } from "./extract.js";
 import { getSettings } from "./settings.js";
+import { BEADS, STORAGE_KEY, load as loadBeads, press as pressBead } from "./beads.js";
+import { daysUntil, ddayText, dueOf, todayLocal } from "./schedule.js";
 
 const $ = (id) => document.getElementById(id);
 let generation = 0;
@@ -118,6 +120,7 @@ async function loadPosting(mine = generation) {
         job_category: $("job_category").value,
         url: tab.url,
         submitted: $("submitted").checked,
+        deadline: $("deadline").value || null,
       });
       const [app] = await api.applications({ url: tab.url });
       if (mine !== generation) return;
@@ -182,10 +185,68 @@ $("relogin").onclick = async () => {
   await chrome.tabs.create({ url: loginUrl });
   window.close();
 };
+/** 앞으로 7일 안의 마감일·다음 일정(D-day 순 최대 5건). 오늘·내일은 "오늘 할 일"로 따로 보인다 */
+async function loadUpcoming(mine = generation) {
+  const apps = await api.upcoming();
+  if (mine !== generation) return;
+  const today = todayLocal();
+  const items = apps.map((a) => ({ a, due: dueOf(a, today) }))
+    .filter(({ due }) => due && daysUntil(due.date, today) >= 0 && daysUntil(due.date, today) <= 7)
+    .sort((x, y) => x.due.date.localeCompare(y.due.date)).slice(0, 5);
+  const row = ({ a, due }) => {
+    const li = document.createElement("li");
+    const what = due.kind === "deadline" ? "마감" : (a.next_step || "다음 일정");
+    const open = Object.assign(document.createElement("button"), { className: "due-open", type: "button" });
+    open.append(Object.assign(document.createElement("span"), { className: "chip due", textContent: ddayText(due.date, today) }),
+      Object.assign(document.createElement("span"), { className: "name", textContent: `${a.company} · ${what}` }));
+    open.onclick = () => openWeb(`/track/${a.id}`);
+    li.append(open);
+    return li;
+  };
+  const urgent = items.filter(({ due }) => daysUntil(due.date, today) <= 1);
+  $("today-list").replaceChildren(...urgent.map(row));
+  $("soon-list").replaceChildren(...items.map(row));
+  $("today-box").hidden = urgent.length === 0;
+  $("soon-box").hidden = items.length === 0;
+}
+
 function loadAccount() {
   const mine = generation;
-  Promise.all([loadPosting(mine), loadRecent(mine)]).catch((e) => handleError(e, mine));
+  Promise.all([loadPosting(mine), loadRecent(mine), loadUpcoming(mine)]).catch((e) => handleError(e, mine));
 }
+
+// ───────── 사이버 염주 ─────────
+const beadEls = Array.from({ length: BEADS }, (_, i) => {
+  const el = document.createElement("span");
+  el.className = "bead";
+  el.style.setProperty("--i", i);
+  return el;
+});
+document.querySelector(".beads").append(...beadEls);
+let beads = loadBeads(null, todayLocal());
+function drawBeads(lit = -1) {
+  $("beads-count").textContent = `오늘 ${beads.today}번 · 모두 ${beads.total}번`;
+  beadEls.forEach((el, i) => el.classList.toggle("lit", i === lit));
+}
+chrome.storage.local.get(STORAGE_KEY).then((saved) => {
+  beads = loadBeads(saved[STORAGE_KEY], todayLocal());
+  $("beads-box").open = beads.open;
+  drawBeads(beads.today ? (beads.today - 1) % BEADS : -1);
+}).catch(() => drawBeads());
+$("beads-box").addEventListener("toggle", () => {
+  beads = { ...beads, open: $("beads-box").open };
+  chrome.storage.local.set({ [STORAGE_KEY]: beads }).catch(() => {});
+});
+$("bead").onclick = () => {
+  const result = pressBead(beads, todayLocal());
+  beads = result.state;
+  drawBeads(result.bead);
+  chrome.storage.local.set({ [STORAGE_KEY]: beads }).catch(() => {});
+  if (result.milestone) {
+    $("beads-cheer").hidden = false;
+    setTimeout(() => { $("beads-cheer").hidden = true; }, 2000);
+  }
+};
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area !== "session" || !changes.accessToken) return;
   clearAccountView();
