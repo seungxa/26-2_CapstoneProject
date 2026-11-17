@@ -59,3 +59,24 @@ test("Skip hides the step and measures nothing", async ({ page, request }) => {
   await recordAndReview(page);
   await expect(page.locator(".camera-delivery").getByRole("heading", { name: "Gaze direction" })).toHaveCount(0);
 });
+
+test("an answer cannot start while calibrating, and calibration can be cancelled", async ({ page, request }) => {
+  await page.addInitScript(() => localStorage.setItem("e2e-gaze-scale", "3")); // slow enough to act during it
+  await open(page, request, true);
+  await page.getByRole("button", { name: "Calibrate", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Gaze calibration" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Start Answer", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Answer", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Try Again", exact: true })).toBeVisible();
+});
+
+test("with gaze direction on, the camera details no longer say it isn't eye tracking", async ({ page, request }) => {
+  await open(page, request, true);
+  const details = page.locator(".camera-panel details");
+  await expect(details).toContainText("rough estimate of where you looked");
+  await expect(details).not.toContainText("not eye tracking");
+});

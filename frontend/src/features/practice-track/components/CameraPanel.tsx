@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { CAMERA_DEBUG, type CameraDiag } from "../video/debug";
+import { CAMERA_DEBUG, gazeDirectionEnabled, type CameraDiag } from "../video/debug";
 import type { CameraStatus } from "./useFaceAnalysis";
 import { edgeLabel, type FaceState, type Overshoot } from "../video/metrics";
 
@@ -55,7 +55,7 @@ export default function CameraPanel({ status, error, face, edge, diag, onEnable,
         <summary>Details</summary>
         <ul className="bullets small">
           <li>It measures only while you record an answer: how often your face is found, time with your face not found or partly out of view, and changes in head turn and tilt. You see the results in your review.</li>
-          <li>It's not eye tracking, and it doesn't judge confidence or emotion.</li>
+          <li>{gazeDirectionEnabled() ? "Gaze direction is a rough estimate of where you looked, after a 10-second calibration. It" : "It's not eye tracking, and it"} doesn't judge confidence or emotion.</li>
           <li>Nothing is saved. Results are cleared when you reload or close the page.</li>
           <li>Turning it on downloads a face-tracking file from Google. Google's library may send usage statistics, but never your video.</li>
         </ul>

@@ -319,7 +319,7 @@ export default function SessionRunner() {
       {phase === "ready" && <div className="runner-main">
         <div className="timer">{fmt(mock ? session.answer_sec : 0)}</div>
         <div className="row">
-          <button className={needsConsent ? undefined : "primary"} disabled={startingUi || needsConsent} onClick={beginQuestion}>Start Answer</button>
+          <button className={needsConsent ? undefined : "primary"} disabled={startingUi || needsConsent || gaze.calibrating} onClick={beginQuestion}>Start Answer</button>
           <button disabled={busy} onClick={() => next(false, false)}>Skip</button>
         </div>
         {notice && <p className="small warn-text">{notice}</p>}

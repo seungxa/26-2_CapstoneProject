@@ -32,9 +32,14 @@ export function useGazeDirection(cam: Cam) {
   useEffect(() => () => stop.current?.(), []);
 
   const calibrate = useCallback(async () => {
-    const result = await calib.start();
-    if (result) { setCalibration(result); guard.current = createCalibrationGuard(viewportGeometry()); }
-  }, [calib]);
+    // Remember the camera size during calibration: a later answer at another size must not use this calibration
+    let size: { width: number; height: number } | undefined;
+    const watch = cam.subscribeFrames((f) => { size = { width: f.width, height: f.height }; });
+    try {
+      const result = await calib.start();
+      if (result) { setCalibration(result); guard.current = createCalibrationGuard(viewportGeometry(), size); }
+    } finally { watch(); }
+  }, [calib, cam]);
 
   /** Answer started: collect frames if calibrated and the view is unchanged since calibrating */
   const begin = useCallback(() => {
@@ -68,7 +73,7 @@ export function useGazeDirection(cam: Cam) {
   const state = calib.state;
   const needed = enabled && cam.status === "on" && !calibration && !skipped;
   const step = needed ? (
-    <div className="gaze-step card-inset" aria-labelledby="gaze-step-title">
+    <div className="gaze-step card-inset" role="group" aria-labelledby="gaze-step-title">
       <p id="gaze-step-title"><b>Gaze direction (10 s)</b> Look at five dots so each answer can show where you looked.</p>
       {state.phase === "failed" && <p className="small warn-text" role="alert">{FAILED[state.reason] ?? "The view changed while calibrating."}</p>}
       <div className="row">
@@ -81,7 +86,8 @@ export function useGazeDirection(cam: Cam) {
   ) : null;
   const view = { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight };
   const overlay = state.phase === "running" ? (
-    <DirectionTargetOverlay x={state.target.x * view.w} y={state.target.y * view.h} prompt="Look at the dot" pose="forward" step={state.step} total={state.total} />
+    <DirectionTargetOverlay x={state.target.x * view.w} y={state.target.y * view.h} prompt="Look at the dot" pose="forward" step={state.step} total={state.total}
+      onCancel={calib.cancel} label="Gaze calibration" />
   ) : null;
-  return { enabled, calibration, step, overlay, begin, end };
+  return { enabled, calibration, step, overlay, begin, end, calibrating: state.phase === "running" };
 }

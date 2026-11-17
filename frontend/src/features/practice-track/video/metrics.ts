@@ -209,7 +209,8 @@ export function videoDiagnostics(summary: SegmentSummary): {
   if (unanalysedMs > 0) comments.push(`${(unanalysedMs / 1000).toFixed(1)}s of the answer wasn't analyzed. It isn't counted as your face being out of view.`);
   if (summary.noneMs > 0) comments.push("Your face wasn't found at times. This can also be caused by lighting, something in the way, the angle or a detection error.");
   if (summary.edgeMs > 0) comments.push("Part of your face was out of view. Check the camera position and distance.");
-  if (summary.headMs > 0) comments.push("Head direction is relative to your usual position in this answer. It isn't eye tracking and doesn't measure focus.");
+  if (summary.headMs > 0) comments.push(summary.gaze ? "Head direction is relative to your usual position in this answer. It doesn't measure focus."
+    : "Head direction is relative to your usual position in this answer. It isn't eye tracking and doesn't measure focus.");
   if (!analyzed) comments.push("No video was analyzed, so there are no posture numbers.");
   return { quality: !analyzed ? "insufficient" : coverage < 0.8 ? "partial" : "measured", coverage, unanalysedMs, comments };
 }
