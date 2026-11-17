@@ -429,3 +429,9 @@
 .practice-track.practice-track ul.upcoming li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
 .practice-track.practice-track ul.upcoming li:first-child { border-top: 0; }
 .practice-track.practice-track .bar.good { background: var(--good); }
+
+/* Apply page (rendered by the team's Apply route, outside FeatureBoundary) */
+.practice-track.apply-page { max-width: 760px; }
+.practice-track.practice-track a.button { display: inline-block; padding: 8px 14px; border-radius: 8px; text-decoration: none; }
+.practice-track.practice-track a.button.primary { background: var(--accent); color: #fff; }
+.practice-track.practice-track .apply-page ol, .practice-track.apply-page ol { padding-left: 20px; }
