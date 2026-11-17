@@ -1,5 +1,9 @@
 import { injectIntoTab } from './tab-connection.js';
 import { loadSettings, isReady, pickCandidate } from './llm.js';
+import { allowedOrigin, parseExternal } from './bridge.js';
+import { validateArchive } from './archive.js';
+import { archiveRepository } from './repository.js';
+import { setAccessToken } from './settings.js';
 // Like the working PoC: start the connection from the actual toolbar event,
 // while keeping the existing side panel UI. Known hosts have persistent access.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
@@ -130,4 +134,19 @@ chrome.webNavigation.onCompleted.addListener(async ({tabId,frameId,url})=>{
     await chrome.scripting.executeScript({target:{tabId,frameIds:[frameId]},files:['values.js','widgets.js','address-agent.js']});
     await chrome.tabs.sendMessage(tabId,{type:'JS_ADDRESS_CONTEXT',intent,child:true},{frameId});
   }catch{}
+});
+
+// 0.8.0: the JobSeeker web app hands over the sign-in token (Track API) and the profile archive (autofill).
+chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
+  const manifest = chrome.runtime.getManifest();
+  if (!allowedOrigin(sender.origin, manifest)) { respond({ ok: false, error: 'This site may not talk to JobSeeker.' }); return; }
+  const parsed = parseExternal(message);
+  if (parsed.error) { respond({ ok: false, error: parsed.error }); return; }
+  if (parsed.kind === 'ping') { respond({ ok: true, version: manifest.version }); return; }
+  (async () => {
+    if (parsed.kind === 'session') await setAccessToken(parsed.token);
+    else await archiveRepository.save(validateArchive(parsed.archive));
+    return { ok: true };
+  })().then(respond).catch((error) => respond({ ok: false, error: error.message }));
+  return true;
 });
