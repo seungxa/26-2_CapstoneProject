@@ -1,7 +1,9 @@
-// 확장 설정(chrome.storage.sync). 옵션 페이지에서 바꿀 수 있다.
+// 확장 설정(chrome.storage.sync). 옵션 페이지에서 바꿀 수 있다. 기본 주소는 config.js(배포 zip은 빌드가 채움)
+import { CONFIG } from "./config.js";
+
 export const DEFAULTS = {
-  apiUrl: "http://localhost:8000",
-  webUrl: "http://localhost:5173",
+  apiUrl: CONFIG.apiUrl,
+  webUrl: CONFIG.webUrl,
   loginUrl: "",
 };
 
