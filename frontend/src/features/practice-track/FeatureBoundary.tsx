@@ -8,7 +8,7 @@ type Section='practice'|'track';
 /** Each team tab shows only its own pages. `end` keeps the first link from staying active on its subpages */
 const MENU:Record<Section,{to:string;label:string;end?:boolean}[]>={
  practice:[{to:'/practice',label:'Start',end:true},{to:'/practice/history',label:'History'},{to:'/practice/settings',label:'Settings'}],
- track:[{to:'/track',label:'Applications',end:true},{to:'/track/stats',label:'Stats'}],
+ track:[{to:'/track',label:'Applications',end:true},{to:'/track/board',label:'Board'},{to:'/track/stats',label:'Stats'}],
 };
 
 /** Shown only when the practice server can't be reached. Transcription status lives next to the record button instead */

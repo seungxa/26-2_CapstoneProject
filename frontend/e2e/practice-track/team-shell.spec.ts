@@ -39,7 +39,7 @@ test('practice tab shows only practice links',async({page})=>{
  await expect(feature.locator(':scope > *')).toHaveCount(2); // the menu and the page, nothing above the page
  await expect(feature).not.toContainText(/음성 전사:|Transcription is/);
  await page.goto('/track');
- await expect(menu.getByRole('link')).toHaveText(['Applications','Stats']);
+ await expect(menu.getByRole('link')).toHaveText(['Applications','Board','Stats']);
  await page.waitForLoadState('networkidle');
  await expect(feature.locator(':scope > *')).toHaveCount(2);
  await menu.getByRole('link',{name:'Stats',exact:true}).click();

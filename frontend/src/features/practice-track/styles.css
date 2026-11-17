@@ -380,3 +380,18 @@
 .practice-track.practice-track .chip.due { font-variant-numeric: tabular-nums; }
 .practice-track.practice-track .chip.due.warn { background: #fff7ed; color: var(--warn-text); border-color: #fed7aa; }
 .practice-track.practice-track .chip.due.muted { color: var(--muted); }
+
+/* Stage board */
+.practice-track.practice-track .board { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.practice-track.practice-track .board-col { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 160px; display: flex; flex-direction: column; gap: 8px; }
+.practice-track.practice-track .board-col.over { border-color: var(--accent); background: var(--accent-soft); }
+.practice-track.practice-track .board-col h2 { font-size: 14px; margin: 0 0 4px; }
+.practice-track.practice-track .board-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; cursor: grab; }
+.practice-track.practice-track .board-card:active { cursor: grabbing; }
+.practice-track.practice-track .board-title { font-weight: 700; color: var(--text); }
+.practice-track.practice-track .board-chips, .practice-track.practice-track .board-actions { gap: 6px; flex-wrap: wrap; align-items: center; }
+.practice-track.practice-track .board-actions select { flex: 1; min-width: 0; }
+@media (max-width: 720px) {
+  .practice-track.practice-track .board { grid-template-columns: 1fr; overflow-x: visible; }
+  .practice-track.practice-track .board-col { min-height: 0; }
+}
