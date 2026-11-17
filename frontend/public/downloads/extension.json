@@ -1,8 +1,8 @@
 {
   "version": "0.8.0",
-  "size": 105094,
-  "sha256": "af8a4b660ff8231f840a512dbe42a5c72b2741301324035ae62bdcd44295bdc7",
-  "source_commit": "7caab14",
+  "size": 105105,
+  "sha256": "5ac90c0d1323f90bb24a95878ede64621dd3799bd8beb4c0f069fd20483ded66",
+  "source_commit": "128d9df",
   "web_origins": [],
   "api_url": "https://team-api.duckdns.org"
 }

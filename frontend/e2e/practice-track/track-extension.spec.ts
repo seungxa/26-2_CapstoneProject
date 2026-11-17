@@ -123,9 +123,9 @@ test("upcoming deadlines and today's tasks show with D-day", async ({ page }) =>
   await expect(today).toContainText("D-day");
   await expect(today).toContainText("오늘회사");
   const soon = page.getByRole("region", { name: "다가오는 일정" });
-  await expect(soon.getByRole("listitem")).toHaveCount(2);
-  await expect(soon.getByRole("listitem").nth(1)).toContainText("D-5");
-  await expect(soon.getByRole("listitem").nth(1)).toContainText("1차 면접");
+  await expect(soon.getByRole("listitem")).toHaveCount(1); // today's item is not repeated here
+  await expect(soon.getByRole("listitem").first()).toContainText("D-5");
+  await expect(soon.getByRole("listitem").first()).toContainText("1차 면접");
   await expect(soon).not.toContainText("먼회사");
 });
 

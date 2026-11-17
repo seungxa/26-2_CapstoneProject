@@ -37,10 +37,16 @@ function parse(argv) {
   return args;
 }
 
+/** Files git tracks in extension/ (stray local files never ship); without git, every non-hidden file */
 function files(dir) {
-  return readdirSync(dir).flatMap((name) => {
+  try {
+    const out = execFileSync("git", ["-C", REPO, "ls-files", "-z", "--", "extension"], { encoding: "utf8" });
+    const tracked = out.split("\0").filter(Boolean).map((p) => p.slice("extension/".length));
+    if (tracked.length) return tracked.sort();
+  } catch { /* not a git checkout */ }
+  return readdirSync(dir).filter((name) => !name.startsWith(".")).flatMap((name) => {
     const path = join(dir, name);
-    return statSync(path).isDirectory() ? files(path) : [relative(SOURCE, path).split("\\").join("/")];
+    return statSync(path).isDirectory() ? files(path).map((f) => `${name}/${f}`) : [relative(SOURCE, path).split("\\").join("/")];
   }).sort();
 }
 

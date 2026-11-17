@@ -205,9 +205,10 @@ async function loadUpcoming(mine = generation) {
   };
   const urgent = items.filter(({ due }) => daysUntil(due.date, today) <= 1);
   $("today-list").replaceChildren(...urgent.map(row));
-  $("soon-list").replaceChildren(...items.map(row));
+  const later = items.filter(({ due }) => daysUntil(due.date, today) > 1);
+  $("soon-list").replaceChildren(...later.map(row));
   $("today-box").hidden = urgent.length === 0;
-  $("soon-box").hidden = items.length === 0;
+  $("soon-box").hidden = later.length === 0;
 }
 
 function loadAccount() {

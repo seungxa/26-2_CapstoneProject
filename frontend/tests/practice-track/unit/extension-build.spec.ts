@@ -2,9 +2,11 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+test.describe.configure({ mode: "serial" }); // one test drops files into extension/ for a moment
 
 const REPO = new URL("../../../../", import.meta.url).pathname;
 const SCRIPT = join(REPO, "scripts/practice-track/build-extension.mjs");
@@ -49,4 +51,17 @@ test("the zip carries the web origin, the API address and only the extension's r
 test("test_committed_zip_matches_the_source", () => {
   // --check rebuilds with the arguments recorded in the committed extension.json and compares the bytes
   expect(() => execFileSync(process.execPath, [SCRIPT, "--check"], { cwd: REPO, stdio: "pipe" })).not.toThrow();
+});
+
+test("stray untracked files in extension/ are not packed", () => {
+  const junk = join(REPO, "extension", ".DS_Store");
+  const notes = join(REPO, "extension", "scratch-notes.txt");
+  writeFileSync(junk, "junk");
+  writeFileSync(notes, "notes");
+  try {
+    expect(() => execFileSync(process.execPath, [SCRIPT, "--check"], { cwd: REPO, stdio: "pipe" })).not.toThrow();
+  } finally {
+    rmSync(junk, { force: true });
+    rmSync(notes, { force: true });
+  }
 });
