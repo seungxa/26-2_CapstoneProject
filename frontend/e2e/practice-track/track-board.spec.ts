@@ -98,3 +98,31 @@ test("a keyboard move keeps focus on the card and announces it", async ({ page, 
   await expect(column(page, "1st Interview").getByRole("article", { name: new RegExp(`^${company}`) })).toBeVisible();
   await expect(card(page, company).getByRole("button", { name: "Move to next stage" })).toBeFocused();
 });
+
+test("a card deleted elsewhere leaves the board instead of coming back", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "flow check");
+  const company = `삭제${Date.now()}`;
+  const app = await newApp(request, company);
+  await page.goto("/track/board");
+  await expect(card(page, company)).toBeVisible();
+  await request.delete(`${API}/track/applications/${app.id}`);
+  await card(page, company).getByRole("button", { name: "Move to next stage" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(card(page, company)).toHaveCount(0);
+});
+
+test("Show closed turns itself off when nothing closed is left", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "flow check");
+  await page.route("**/track/applications", (route) => route.request().method() === "GET"
+    ? route.fulfill({ json: [{ id: "x1", company: "닫힘회사", position: "백엔드", job_category: "개발", url: null, applied_at: null, stage: "최종", status: "합격",
+      notes: null, source: "web", created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-01T00:00:00Z", deadline: null, next_step_on: null, next_step: null }] })
+    : route.fallback());
+  await page.route("**/track/applications/x1", (route) => route.fulfill({ json: { id: "x1", status: route.request().postDataJSON().status } }));
+  await page.goto("/track/board");
+  await page.getByRole("button", { name: "Show closed (1)" }).click();
+  await card(page, "닫힘회사").getByRole("combobox", { name: "Status" }).selectOption("진행중");
+  await expect(page.getByRole("button", { name: /closed/ })).toHaveCount(0);
+  await card(page, "닫힘회사").getByRole("combobox", { name: "Status" }).selectOption("불합격");
+  await expect(card(page, "닫힘회사")).toHaveCount(0); // hidden again, the toggle starts from "Show"
+  await expect(page.getByRole("button", { name: "Show closed (1)" })).toBeVisible();
+});

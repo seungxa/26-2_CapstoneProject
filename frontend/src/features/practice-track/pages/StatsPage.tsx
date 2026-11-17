@@ -87,7 +87,7 @@ export default function StatsPage() {
         <div className="tile"><div className="v">{decided ? pct(s.status["합격"] / decided) : "–"}</div><div className="l">Pass Rate</div></div>
         <div className="tile" data-testid="days-to-result">
           <div className="v">{toResult.median ?? "–"}</div>
-          <div className="l">Days to First Result{toResult.count ? ` (${toResult.count} results)` : ""}</div>
+          <div className="l">Days to First Result{toResult.count ? ` (${toResult.count} ${toResult.count === 1 ? "result" : "results"})` : ""}</div>
         </div>
       </div>
 

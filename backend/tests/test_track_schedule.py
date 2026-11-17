@@ -145,3 +145,11 @@ def test_a_bad_timezone_is_a_startup_error():
 
     with pytest.raises(ConfigError, match="APP_TIMEZONE"):
         Settings({"AUTH_DISABLED": "true", "APP_TIMEZONE": "Mars/Base"}).check()
+
+
+def test_a_result_dated_before_applying_is_left_out_of_days_to_first_result(client):
+    h = user()
+    a = new(client, h, "앞선결과", applied_at=day(-5))
+    r = client.post(f"/track/applications/{a['id']}/events", headers=h, json={"stage": "서류", "result": "불합격", "event_date": day(-9)})
+    assert r.status_code == 201, r.text
+    assert client.get("/track/stats", headers=h).json()["days_to_first_result"] == {"median": None, "count": 0}

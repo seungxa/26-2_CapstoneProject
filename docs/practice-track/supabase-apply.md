@@ -72,7 +72,7 @@ SQL Editor가 `drop policy` 같은 문장을 보고 "destructive operation" 경�
 | `20261104_practice_insights.sql`, `20261105_practice_integrity.sql` | 질문 유형·역량 태그(연습 회고의 분석) | 적용한 뒤에만 `PRACTICE_INSIGHTS_ENABLED=true` |
 | `20261015_interview_coaching.sql`, `20261015_practice_p0.sql` | 답변 점검·꼬리질문, 녹음 동의와 보관 | `schema.sql`에 이미 들어 있다. 예전 스키마에서 올릴 때 필요 |
 
-앱은 시작할 때 위 표의 첫 줄과(설정을 켰으면) 둘째 줄이 적용됐는지 검사한다. 빠졌으면 어떤 파일이 필요한지 로그에 쓰고 시작하지 않는다.
+앱은 시작할 때 위 표의 첫 줄과 둘째 줄(항상), 셋째 줄(설정을 켰을 때)이 적용됐는지 검사한다. 빠졌으면 어떤 파일이 필요한지 로그에 쓰고 시작하지 않는다.
 
 ## 5. 녹음 버킷 확인
 

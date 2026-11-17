@@ -65,3 +65,15 @@ test("on a phone the month is a list of days", async ({ page, request }, testInf
   await expect(list.getByRole("link", { name: `Next ${company}` })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test("result and next-step names are visible on the chip, and the month change is announced", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "month grid");
+  const company = `결과${Date.now()}`;
+  const app = await newApp(request, company, { next_step_on: plus(0), next_step: "과제 제출" });
+  await request.post(`${API}/track/applications/${app.id}/events`, { data: { stage: "서류", result: "합격", event_date: plus(0) } });
+  await page.goto("/track/calendar");
+  const today = page.locator(`td[data-date="${plus(0)}"]`);
+  await expect(today.getByRole("link", { name: new RegExp(`Next ${company}`) })).toContainText("과제 제출");
+  await expect(today.getByRole("link", { name: new RegExp(`Result ${company}`) })).toContainText("Application Passed");
+  await expect(page.getByTestId("calendar-title")).toHaveAttribute("aria-live", "polite");
+});

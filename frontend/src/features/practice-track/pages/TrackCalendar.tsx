@@ -25,7 +25,7 @@ function Chip({ item }: { item: CalendarItem }) {
   return (
     <Link to={`/track/${item.application_id}`} className={`cal-chip ${item.kind}`} title={more || undefined}>
       {KIND[item.kind]} <span lang={langOf(item.company)}>{item.company}</span>
-      {more && <span className="sr-only"> · {more}</span>}
+      {more && <span className="cal-more" lang={item.kind === "next_step" ? langOf(more) : undefined}> · {more}</span>}
     </Link>
   );
 }
@@ -68,7 +68,7 @@ export default function TrackCalendar() {
           <button aria-label="Previous month" onClick={() => setYm((m) => shiftMonth(m, -1))}>‹</button>
           <button onClick={() => setYm(thisMonth())}>Today</button>
           <button aria-label="Next month" onClick={() => setYm((m) => shiftMonth(m, 1))}>›</button>
-          <h2 className="grow" data-testid="calendar-title">{monthTitle(ym)}</h2>
+          <h2 className="grow" data-testid="calendar-title" aria-live="polite">{monthTitle(ym)}</h2>
         </div>
         {err && <p className="err" role="alert">{err}</p>}
         {items && monthDays.length === 0 && <p className="muted">Nothing this month</p>}

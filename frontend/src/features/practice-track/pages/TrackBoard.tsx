@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { groupByStage, moveTarget } from "../components/track/board";
 import { DueChip } from "../components/track/DueChip";
 import { todayLocal } from "../components/track/dday";
@@ -49,7 +49,9 @@ export default function TrackBoard() {
       if (patch.stage) setAnnounce(`Moved ${app.company} to ${label("stage", patch.stage)}`);
       else if (patch.status) setAnnounce(`${app.company}: ${label("status", patch.status)}`);
     } catch (e) {
-      setApps((list) => list && list.map((a) => (a.id === app.id ? app : a)));
+      // Deleted elsewhere: take the card off the board instead of putting it back
+      const gone = e instanceof ApiError && e.status === 404;
+      setApps((list) => list && (gone ? list.filter((a) => a.id !== app.id) : list.map((a) => (a.id === app.id ? app : a))));
       setErr((e as Error).message);
     } finally {
       busyNow.current.delete(app.id);
@@ -59,6 +61,7 @@ export default function TrackBoard() {
 
   if (!apps) return err ? <p className="err" role="alert">{err}</p> : <p className="muted">Loading…</p>;
   const { columns, closed } = groupByStage(apps, showClosed);
+  if (closed === 0 && showClosed) setShowClosed(false); // nothing closed left: start from "Show" next time
   const today = todayLocal();
 
   return (

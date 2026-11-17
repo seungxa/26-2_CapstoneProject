@@ -464,6 +464,7 @@ def _days_to_first_result(apps) -> dict:
     gaps = []
     for a in apps:
         results = [ev.event_date for ev in a.events if ev.result in CLOSED and ev.event_date]
-        if a.applied_at and results:
+        # A result dated before the application date is a typo in one of the dates: leave it out
+        if a.applied_at and results and min(results) >= a.applied_at:
             gaps.append((min(results) - a.applied_at).days)
     return {"median": float(statistics.median(gaps)) if gaps else None, "count": len(gaps)}
