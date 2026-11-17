@@ -29,7 +29,7 @@ test("the list shows English names while filters send the stored values", async 
   await page.getByPlaceholder("Search company or role").fill(tok);
   await expect(page.locator("tbody tr")).toHaveCount(2);
   const row = page.getByRole("row").filter({ hasText: `${tok} 회사` });
-  await expect(row.getByRole("cell")).toHaveText([`${tok} 회사`, "백엔드", "1st Interview", "In Progress", /^[A-Z][a-z]{2} \d{1,2}$/]);
+  await expect(row.getByRole("cell")).toHaveText([`${tok} 회사`, "백엔드", "1st Interview", "In Progress", "", /^[A-Z][a-z]{2} \d{1,2}$/]);
   // The status filter is visible; stage and job are folded under Filters
   const status = page.getByRole("combobox", { name: "Filter by status", exact: true });
   await expect(status.locator("option")).toHaveText(["All Statuses", "In Progress", "Passed", "Rejected", "On Hold"]);

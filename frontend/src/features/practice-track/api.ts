@@ -1,4 +1,5 @@
 import type {
+  CalendarItem,
   Application,
   ApplicationCreate,
   ApplicationDetail,
@@ -190,8 +191,9 @@ return {
   deleteAllRecordings: () => req<DeleteResult>("DELETE", "/practice/recordings"),
 
   // ③ Track
-  applications: (f: { status?: string; stage?: string; job_category?: string; q?: string } = {}) =>
+  applications: (f: { status?: string; stage?: string; job_category?: string; q?: string; sort?: "recent" | "due" } = {}) =>
     req<Application[]>("GET", `/track/applications${qs(f)}`),
+  calendar: (start: string, end: string) => req<CalendarItem[]>("GET", `/track/calendar${qs({ start, end })}`),
   application: (id: string) => req<ApplicationDetail>("GET", `/track/applications/${id}`),
   createApplication: (b: ApplicationCreate) =>
     req<ApplicationDetail>("POST", "/track/applications", b),

@@ -4,6 +4,7 @@ import { api } from "../api";
 import Diff from "../components/Diff";
 import { dayLabel, updatedLabel } from "../components/track/format";
 import { StageTrack } from "../components/track/StageTrack";
+import { DueChip } from "../components/track/DueChip";
 import { StatusChip } from "../components/track/StatusChip";
 import { mergeApplicationDetail, mergeEssayItem } from "../components/track/state";
 import { label, langOf } from "../labels";
@@ -133,7 +134,8 @@ function EssayCard({ item, onChange, onDelete }: { item: EssayItem; onChange: (i
 }
 
 function DetailsForm({ a, save, cancel, pending }: { a: ApplicationDetail; save: (body: ApplicationPatch) => Promise<unknown>; cancel: () => void; pending: boolean }) {
-  const values = () => ({ company: a.company, position: a.position, job_category: a.job_category, applied_at: a.applied_at ?? "", stage: a.stage, status: a.status, url: a.url ?? "", notes: a.notes ?? "" });
+  const values = () => ({ company: a.company, position: a.position, job_category: a.job_category, applied_at: a.applied_at ?? "", stage: a.stage, status: a.status, url: a.url ?? "", notes: a.notes ?? "",
+    deadline: a.deadline ?? "", next_step: a.next_step ?? "", next_step_on: a.next_step_on ?? "" });
   const [draft, setDraft] = useState(values);
   const synced = useRef(draft);
   useEffect(() => {
@@ -157,12 +159,18 @@ function DetailsForm({ a, save, cancel, pending }: { a: ApplicationDetail; save:
       <label>Stage<select value={draft.stage} onChange={(e) => setDraft({ ...draft, stage: e.target.value as ApplicationDetail["stage"] })}>{stageOptions}</select></label>
       <label>Status<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as ApplicationDetail["status"] })}>{statusOptions}</select></label>
     </div>
+    <div className="row">
+      <label>Deadline<input type="date" value={draft.deadline} onChange={(e) => setDraft({ ...draft, deadline: e.target.value })} /></label>
+      <label className="grow">Next step<input maxLength={40} placeholder="e.g. 1st interview" lang={langOf(draft.next_step)} value={draft.next_step} onChange={(e) => setDraft({ ...draft, next_step: e.target.value })} /></label>
+      <label>Next step date<input type="date" value={draft.next_step_on} onChange={(e) => setDraft({ ...draft, next_step_on: e.target.value })} /></label>
+    </div>
     <label>Job posting URL<input value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} /></label>
     <label>Notes<textarea lang={langOf(draft.notes)} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
     <p className="small muted">A stage or status you set here stays until you choose Follow Results.</p>
     <div className="row">
       <button className="primary" disabled={pending || !draft.company.trim() || !draft.position.trim()} onClick={() => {
-        const body: ApplicationPatch = { company: draft.company, position: draft.position, job_category: draft.job_category, applied_at: draft.applied_at || null, url: draft.url || null, notes: draft.notes || null };
+        const body: ApplicationPatch = { company: draft.company, position: draft.position, job_category: draft.job_category, applied_at: draft.applied_at || null, url: draft.url || null, notes: draft.notes || null,
+          deadline: draft.deadline || null, next_step: draft.next_step.trim() || null, next_step_on: draft.next_step_on || null };
         if (draft.stage !== a.stage) body.stage = draft.stage;
         if (draft.status !== a.status) body.status = draft.status;
         void save(body);
@@ -249,6 +257,7 @@ export default function ApplicationPage() {
         <h1 lang={langOf(a.company + a.position)}>{a.company} · {a.position}</h1>
         <span className="chip" data-testid="application-stage">{label("stage", a.stage)}</span>
         <StatusChip status={a.status} testId="application-status" />
+        <DueChip app={a} />
         <button className="primary app-practice" onClick={() => nav(`/practice?application=${a.id}`)}>Practice for This Application</button>
       </div>
       <StageTrack a={a} />
@@ -267,6 +276,8 @@ export default function ApplicationPage() {
               <dl className="facts">
                 <dt>Job</dt><dd>{label("job", a.job_category)}</dd>
                 {a.applied_at && <><dt>Date applied</dt><dd>{dayLabel(a.applied_at)}</dd></>}
+                {a.deadline && <><dt>Deadline</dt><dd>{dayLabel(a.deadline)}</dd></>}
+                {(a.next_step || a.next_step_on) && <><dt>Next step</dt><dd lang={langOf(a.next_step ?? "")}>{[a.next_step, a.next_step_on && dayLabel(a.next_step_on)].filter(Boolean).join(" · ")}</dd></>}
                 {a.url && <><dt>Job posting</dt><dd>
                   <a href={a.url} target="_blank" rel="noreferrer" aria-describedby={`${ids}-new-tab`}>Open Posting<span aria-hidden="true"> ↗</span></a>
                   <span id={`${ids}-new-tab`} hidden>Opens in a new tab</span>

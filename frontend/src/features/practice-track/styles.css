@@ -374,3 +374,9 @@
 .practice-track.practice-track .track-table .chip { white-space: nowrap; }
 .practice-track.practice-track .event-date { white-space: nowrap; }
 @media (max-width: 540px) { .practice-track.practice-track .event-date { white-space: normal; } }
+
+/* Text for screen readers only */
+.practice-track.practice-track .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.practice-track.practice-track .chip.due { font-variant-numeric: tabular-nums; }
+.practice-track.practice-track .chip.due.warn { background: #fff7ed; color: var(--warn-text); border-color: #fed7aa; }
+.practice-track.practice-track .chip.due.muted { color: var(--muted); }

@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router";
 import { api } from "../api";
 import { updatedLabel } from "../components/track/format";
 import { StatusChip } from "../components/track/StatusChip";
+import { DueChip } from "../components/track/DueChip";
+import { todayLocal } from "../components/track/dday";
 import { label, langOf } from "../labels";
 import { JOB_CATEGORIES, STAGES, STATUSES, type Application } from "../types";
 
@@ -13,7 +15,7 @@ const jobOptions = JOB_CATEGORIES.map((j) => <option key={j} value={j}>{label("j
 export default function TrackList() {
   const nav = useNavigate();
   const [rows, setRows] = useState<Application[]>([]);
-  const [f, setF] = useState({ status: "", stage: "", job_category: "", q: "" });
+  const [f, setF] = useState<{ status: string; stage: string; job_category: string; q: string; sort: "recent" | "due" }>({ status: "", stage: "", job_category: "", q: "", sort: "recent" });
   const [form, setForm] = useState(EMPTY);
   const [open, setOpen] = useState(false);
   const creating = useRef(false);
@@ -32,7 +34,7 @@ export default function TrackList() {
   useEffect(() => {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
-  }, [f.status, f.stage, f.job_category, f.q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [f.status, f.stage, f.job_category, f.q, f.sort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = async () => {
     if (creating.current) return;
@@ -58,6 +60,7 @@ export default function TrackList() {
   const cancel = () => { setOpen(false); setForm(EMPTY); setCreateErr(null); };
 
   const folded = (f.stage ? 1 : 0) + (f.job_category ? 1 : 0);
+  const today = todayLocal();
   const filtered = !!(f.q || f.status || folded);
 
   return (
@@ -92,6 +95,10 @@ export default function TrackList() {
             <option value="">All Statuses</option>
             {STATUSES.map((s) => <option key={s} value={s}>{label("status", s)}</option>)}
           </select>
+          <select aria-label="Sort" value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value as "recent" | "due" })}>
+            <option value="recent">Recently updated</option>
+            <option value="due">Due soon</option>
+          </select>
           <details className="fold list-filters">
             <summary>Filters{folded ? ` (${folded})` : ""}</summary>
             <div className="row">
@@ -112,7 +119,7 @@ export default function TrackList() {
         ) : (
           <div className="table-scroll"><table className="track-table">
             <thead>
-              <tr><th>Company</th><th>Role</th><th>Stage</th><th>Status</th><th>Updated</th></tr>
+              <tr><th>Company</th><th>Role</th><th>Stage</th><th>Status</th><th>Due</th><th>Updated</th></tr>
             </thead>
             <tbody>
               {rows.map((a) => (
@@ -121,6 +128,7 @@ export default function TrackList() {
                   <td lang={langOf(a.position)}>{a.position}</td>
                   <td>{label("stage", a.stage)}</td>
                   <td><StatusChip status={a.status} /></td>
+                  <td className="nowrap"><DueChip app={a} today={today} /></td>
                   <td className="muted nowrap">{updatedLabel(a.updated_at)}</td>
                 </tr>
               ))}

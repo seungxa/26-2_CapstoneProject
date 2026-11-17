@@ -208,6 +208,10 @@ export interface Application {
   stage: Stage;
   status: Status;
   notes: string | null;
+  /** Posting deadline and the next step (aptitude test, interview) with its date: YYYY-MM-DD */
+  deadline: string | null;
+  next_step_on: string | null;
+  next_step: string | null;
   source: "web" | "extension";
   created_at: string;
   updated_at: string;
@@ -226,6 +230,9 @@ export interface ApplicationCreate {
   stage?: Stage;
   status?: Status;
   notes?: string | null;
+  deadline?: string | null;
+  next_step_on?: string | null;
+  next_step?: string | null;
 }
 
 /** PATCH /track/applications/{id} 요청(backend ApplicationPatch). 보낸 필드만 바꾼다.
@@ -239,6 +246,9 @@ export interface ApplicationPatch {
   stage?: Stage;
   status?: Status;
   notes?: string | null;
+  deadline?: string | null;
+  next_step_on?: string | null;
+  next_step?: string | null;
 }
 
 export interface StageEvent {
@@ -292,4 +302,18 @@ export interface Stats {
   monthly: { month: string; count: number }[];
   applied_monthly?: { month: string; count: number }[];
   undated_count?: number;
+  /** Deadlines and next steps in the next 14 days (decided applications left out) */
+  upcoming: CalendarItem[];
+  /** Days from the application date to its first result: median and how many applications it covers */
+  days_to_first_result: { median: number | null; count: number };
+}
+
+/** One dated item on the Track calendar (GET /track/calendar) */
+export interface CalendarItem {
+  date: string;
+  kind: "applied" | "deadline" | "next_step" | "result";
+  application_id: string;
+  company: string;
+  position: string;
+  label: string;
 }
