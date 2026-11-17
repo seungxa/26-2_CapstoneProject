@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JobSeeker Apply</title><link rel="stylesheet" href="panel.css"></head>
+<body>
+  <header><span class="eyebrow">JOBSEEKER / APPLY · 0.7</span><h1>Save once,<br>apply anywhere.</h1><p>Fills application forms from your archive.</p></header>
+  <nav><button id="archive-tab" aria-pressed="true">My archive</button><button id="apply-tab" aria-pressed="false">Apply</button></nav>
+  <main>
+    <section id="archive-view"><div class="section-head"><h2>My records</h2><span class="badge">Saved in this browser</span></div><p class="muted">Empty fields are never filled in.</p><div id="editor"></div><button id="save" class="primary">Save archive</button><details><summary>Data</summary><div class="actions"><button id="export">Export JSON</button><label class="file-button">Import JSON<input id="import" type="file" accept="application/json,.json"></label><button id="delete">Delete archive</button><button id="clear-mappings">Reset field links</button></div></details></section>
+    <section id="apply-view" hidden><h2>Fill this step</h2><p class="muted">You move to the next step and submit yourself.</p><div class="actions"><button id="stage" class="primary">Fill this step</button><button id="scan">Connect page</button><button id="grant-site">Allow this site</button></div><label><input type="checkbox" id="auto-fill" checked> Auto-fill sure matches</label><label><input type="checkbox" id="overwrite"> Overwrite existing values</label><details id="ai-box"><summary>AI (optional) · <span id="ai-state">Off</span></summary>
+<p class="muted">Used only when rules can't decide. Field names, options and your archive (not saved answers) are sent to the AI service.</p>
+<label><input type="checkbox" id="ai-enabled"> Use AI</label>
+<label>Provider <select id="ai-provider"></select></label>
+<label>API URL <input id="ai-base" spellcheck="false"></label>
+<label>Model <input id="ai-model" spellcheck="false" placeholder="e.g. claude-haiku-5-5, gpt-4.1-mini, qwen3:4b"></label>
+<label>API key <input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="Leave empty for local Ollama"></label>
+<div class="actions"><button id="ai-save">Save</button><button id="ai-test">Test connection</button></div>
+<p class="muted">Ollama: http://127.0.0.1:11434/v1 · on 403, restart it with OLLAMA_ORIGINS=chrome-extension://*</p>
+</details><p id="page-info" class="muted"></p><div id="fields"></div><p id="preview" class="muted" aria-live="polite"></p><button id="fill" class="primary" disabled>Apply suggestion</button><div id="review"></div><h2>Results</h2><div id="results" aria-live="polite"></div></section>
+  </main><footer id="status" role="status" aria-live="polite">Ready.</footer><script src="values.js"></script><script type="module" src="panel.js"></script>
+</body></html>
