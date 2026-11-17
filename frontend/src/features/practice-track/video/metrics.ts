@@ -1,3 +1,4 @@
+import type { GazeSummary } from "./gaze/directionSummary";
 /** 카메라 자세 분석의 계산과 보관. 얼굴 특징점(정규화 좌표)에서 수치만 만들고, 영상·이미지·특징점 원본은 남기지 않는다.
  *  브라우저 API를 쓰지 않아 Node에서도 테스트할 수 있다(web/tests/unit/video-metrics.spec.ts, npm run test:unit). */
 
@@ -35,6 +36,8 @@ export type SegmentSummary = {
   headMs: number;
   turnedMs: number;
   downMs: number;
+  /** Gaze directions for this answer, only when gaze direction is on and was calibrated (C3) */
+  gaze?: GazeSummary;
 };
 
 /** 기록 주기. 초당 4회만 검출해 CPU 사용을 줄인다 */
@@ -154,7 +157,8 @@ export function createFaceSampler(maxSamples = 14_400) {
 export function combineSummaries(list: SegmentSummary[]): SegmentSummary {
   const out = summarizeSegment([]);
   for (const s of list) {
-    for (const k of Object.keys(out) as (keyof SegmentSummary)[]) if (k !== "longestNoneMs") out[k] += Number.isFinite(s[k]) ? s[k] : 0;
+    // Numbers only: the optional gaze summary is per answer and is not combined
+    for (const k of Object.keys(out) as Exclude<keyof SegmentSummary, "gaze">[]) if (k !== "longestNoneMs") out[k] += Number.isFinite(s[k]) ? s[k] : 0;
     out.longestNoneMs = Math.max(out.longestNoneMs, Number.isFinite(s.longestNoneMs) ? s.longestNoneMs : 0);
   }
   return out;

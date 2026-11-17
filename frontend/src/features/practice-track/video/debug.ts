@@ -12,3 +12,10 @@ export type DiagCounts = { in: number; edge: number; none: number; edgeCore: num
 export type CameraDiag = { sample: FaceSample | null; width: number; height: number; counts: DiagCounts };
 
 export const emptyCounts = (): DiagCounts => ({ in: 0, edge: 0, none: 0, edgeCore: 0 });
+/** Gaze direction in practice (C2–C4). Off until the webcam test passes (docs/practice-track/gaze-direction-protocol.md).
+ *  The fake-detector e2e build can also switch it on per page with localStorage "e2e-gaze-direction" = "1" */
+export function gazeDirectionEnabled(): boolean {
+  if (import.meta.env.VITE_GAZE_DIRECTION === "true") return true;
+  if (import.meta.env.VITE_E2E_FAKE_FACE !== "true") return false;
+  try { return localStorage.getItem("e2e-gaze-direction") === "1"; } catch { return false; }
+}

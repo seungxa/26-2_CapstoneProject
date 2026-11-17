@@ -6,6 +6,7 @@ import { saveVoiceSegment, clearVoiceSegment, type DeliverySummary } from "../de
 import CameraPanel from "../components/CameraPanel";
 import ConsentPanel from "../components/ConsentPanel";
 import { useFaceAnalysis } from "../components/useFaceAnalysis";
+import { useGazeDirection } from "../components/GazeDirectionStep";
 import { useRecorder } from "../components/useRecorder";
 import { label } from "../labels";
 import { transcriptionNotice } from "../sttText";
@@ -47,6 +48,9 @@ export default function SessionRunner() {
   // 선택 기능. 꺼져 있거나 실패해도 아래 흐름은 그대로다(답변 시작·끝에서 기록 구간만 알린다)
   const cam = useFaceAnalysis();
   const { beginSegment, endSegment } = cam;
+  // 시선 방향(플래그 뒤): 첫 답변 전 기준 잡기, 답변마다 방향 시간 요약을 카메라 요약에 붙인다
+  const gaze = useGazeDirection(cam);
+  const { begin: beginGaze, end: endGaze } = gaze;
   const deadline = useRef(0);
   const processing = useRef(false);
   const pendingAudio = useRef<{ blob: Blob; durationSec: number; delivery?: DeliverySummary } | null>(null);
@@ -99,8 +103,15 @@ export default function SessionRunner() {
     setPhase("uploading");
     setErr(null);
     // 카메라 구간 요약은 첫 호출에서만 나온다(녹음 저장을 다시 시도할 때는 null이라 저장한 값을 덮지 않음)
-    if (inputMode === "audio") pendingVideo.current ??= endSegment();
-    else { endSegment(); pendingVideo.current=null; clearVideoSegment(id,answer.id); clearVoiceSegment(id,answer.id); }
+    if (inputMode === "audio") {
+      if (!pendingVideo.current) {
+        const video = endSegment();
+        const directions = endGaze();
+        if (video && directions) video.gaze = directions;
+        pendingVideo.current = video;
+      }
+    }
+    else { endSegment(); endGaze(); pendingVideo.current=null; clearVideoSegment(id,answer.id); clearVoiceSegment(id,answer.id); }
     try {
       let saved: PracticeAnswer;
       if (inputMode === "audio") {
@@ -129,18 +140,18 @@ export default function SessionRunner() {
       processing.current = false;
       setPhase("reviewing");
     }
-  }, [answer, askConsent, endSegment, id, inputMode, stop, updateAnswer]);
+  }, [answer, askConsent, endGaze, endSegment, id, inputMode, stop, updateAnswer]);
 
   const beginAnswer = useCallback(async () => {
     try {
-      if (inputMode === "audio") { await start(); beginSegment(); }
+      if (inputMode === "audio") { await start(); beginSegment(); beginGaze(); }
       setPhase("answer");
       if (session) {
         deadline.current = performance.now() + session.answer_sec * 1000;
         setLeft(session.answer_sec);
       }
     } catch { setPhase("ready"); }
-  }, [beginSegment, inputMode, start, session]);
+  }, [beginGaze, beginSegment, inputMode, start, session]);
 
   // 마이크 권한을 묻는 동안 '답변 시작'을 다시 눌러도 한 번만 시작한다(녹음기가 둘 생기지 않게)
   const starting = useRef(false);
@@ -312,6 +323,7 @@ export default function SessionRunner() {
           <button disabled={busy} onClick={() => next(false, false)}>Skip</button>
         </div>
         {notice && <p className="small warn-text">{notice}</p>}
+        {inputMode === "audio" && gaze.step}
       </div>}
       {phase === "prep" && <div className="runner-main">
         <p className="phase">Prep time</p>
@@ -359,5 +371,6 @@ export default function SessionRunner() {
       </div>
       {phase === "ready" && needsConsent && consentPanel(null, "Agree & Start", () => void beginQuestion())}
     </section>
+    {gaze.overlay}
   </div>;
 }

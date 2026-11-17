@@ -435,3 +435,8 @@
 .practice-track.practice-track a.button { display: inline-block; padding: 8px 14px; border-radius: 8px; text-decoration: none; }
 .practice-track.practice-track a.button.primary { background: var(--accent); color: #fff; }
 .practice-track.practice-track .apply-page ol, .practice-track.apply-page ol { padding-left: 20px; }
+
+/* Gaze direction (behind VITE_GAZE_DIRECTION) */
+.practice-track.practice-track .gaze-step { border: 1px dashed var(--border); border-radius: var(--radius); padding: 10px; margin-top: 10px; }
+.practice-track.practice-track .gaze-row { display: contents; }
+.practice-track.practice-track .gaze-bar { display: inline-block; height: 6px; margin-left: 8px; background: var(--accent); border-radius: 3px; vertical-align: middle; max-width: 120px; }
