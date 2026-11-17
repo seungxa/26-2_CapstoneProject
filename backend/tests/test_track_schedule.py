@@ -5,7 +5,9 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import create_engine, text
 
-TODAY = date.today()
+from app.routers.track import local_today  # noqa: E402
+
+TODAY = local_today()  # the app's day (APP_TIMEZONE), not the test machine's
 
 
 def user() -> dict:
@@ -121,3 +123,25 @@ def test_track_schema_requires_schedule_columns(tmp_path, missing):
         conn.execute(text(f"alter table applications drop column {missing}"))
     with pytest.raises(RuntimeError, match="20261117_track_schedule.sql"):
         validate_track_schema(engine)
+
+
+def test_today_is_the_configured_zone_not_the_server_clock(monkeypatch):
+    """The deployed server runs UTC; Korean users' day starts nine hours earlier."""
+    from datetime import datetime, timezone
+
+    from app.config import Settings, settings
+    from app.routers import track
+
+    assert Settings({}).app_timezone == "Asia/Seoul"
+    monkeypatch.setattr(settings, "app_timezone", "Asia/Seoul")
+    late_utc = datetime(2026, 11, 17, 23, 30, tzinfo=timezone.utc)
+    assert track.local_today(late_utc) == date(2026, 11, 18)
+    monkeypatch.setattr(settings, "app_timezone", "UTC")
+    assert track.local_today(late_utc) == date(2026, 11, 17)
+
+
+def test_a_bad_timezone_is_a_startup_error():
+    from app.config import ConfigError, Settings
+
+    with pytest.raises(ConfigError, match="APP_TIMEZONE"):
+        Settings({"AUTH_DISABLED": "true", "APP_TIMEZONE": "Mars/Base"}).check()

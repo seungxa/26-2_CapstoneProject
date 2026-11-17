@@ -82,3 +82,19 @@ test("on a phone the columns stack in stage order", async ({ page }, testInfo) =
   const width = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   expect(width).toBe(true);
 });
+
+test("a keyboard move keeps focus on the card and announces it", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "keyboard flow");
+  const company = `키보드${Date.now()}`;
+  await newApp(request, company);
+  await page.goto("/track/board");
+  await card(page, company).getByRole("button", { name: "Move to next stage" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(column(page, "Aptitude Test").getByRole("article", { name: new RegExp(`^${company}`) })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText(`Moved ${company} to Aptitude Test`);
+  const focused = card(page, company).getByRole("button", { name: "Move to next stage" });
+  await expect(focused).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(column(page, "1st Interview").getByRole("article", { name: new RegExp(`^${company}`) })).toBeVisible();
+  await expect(card(page, company).getByRole("button", { name: "Move to next stage" })).toBeFocused();
+});

@@ -2,7 +2,8 @@
 import statistics
 from typing import Literal
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
@@ -10,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth import current_user_id
+from ..config import settings
 from ..db import get_db
 from ..models import STAGES, STATUSES, AnswerVersion, Application, EssayItem, StageEvent, valid_id
 from ..services import track_state, track_versions
@@ -116,7 +118,7 @@ def list_applications(
         stmt = stmt.where(Application.company.contains(q) | Application.position.contains(q))
     rows = db.scalars(stmt.order_by(Application.updated_at.desc())).all()
     if sort == "due":
-        today = date.today()
+        today = local_today()
         # 다가오는 날짜가 있는 건이 앞(이른 순), 날짜가 없으면 그다음, 결과가 난 건은 맨 뒤. 같은 묶음 안은 최근 수정순
         rows = sorted(rows, key=lambda a: (2 if a.status in CLOSED else 0 if _due(a, today) else 1,
                                            _due(a, today) or date.max))
@@ -126,6 +128,11 @@ def list_applications(
 # ───────── 일정 ─────────
 
 CLOSED = ("합격", "불합격")
+
+
+def local_today(now: datetime | None = None) -> date:
+    """Today in the users' time zone (APP_TIMEZONE). The deployed server's clock is UTC, nine hours behind Korea."""
+    return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(settings.app_timezone)).date()
 CALENDAR_MAX_DAYS = 62
 _KINDS = ("applied", "deadline", "next_step", "result")
 
@@ -215,7 +222,7 @@ def add_event(app_id: str, body: StageEventIn, user_id: str = Depends(current_us
     """
     app = _lock_app(db, user_id, app_id)
     app.events.append(StageEvent(stage=body.stage, result=body.result,
-                                 event_date=body.event_date or date.today(), memo=body.memo))
+                                 event_date=body.event_date or local_today(), memo=body.memo))
     db.flush()
     track_state.project(app)
     db.commit()
@@ -361,18 +368,18 @@ def _sync(db: Session, user_id: str, body: SyncIn) -> SyncOut:
     if created:
         app = Application(user_id=user_id, company=body.company, position=body.position,
                           job_category=body.job_category, url=body.url, deadline=body.deadline,
-                          applied_at=body.applied_at or (date.today() if body.submitted else None),
+                          applied_at=body.applied_at or (local_today() if body.submitted else None),
                           source="extension")
         db.add(app)
         db.flush()  # 고유 제약 충돌을 여기서 알린다
         track_state.initialize(app)
     elif body.submitted and not app.applied_at:
-        app.applied_at = body.applied_at or date.today()
+        app.applied_at = body.applied_at or local_today()
     app = _lock_app(db, user_id, app.id) if not created else app
     if body.deadline is not None:
         app.deadline = body.deadline
     if body.submitted and not app.applied_at:
-        app.applied_at = body.applied_at or date.today()
+        app.applied_at = body.applied_at or local_today()
     by_text = {i.question_text.strip(): i for i in app.essay_items}
     new_versions = 0
     for e in body.essays:
@@ -443,7 +450,7 @@ def stats(user_id: str = Depends(current_user_id), db: Session = Depends(get_db)
         "monthly": [{"month": m, "count": n} for m, n in sorted(monthly.items())],
         "applied_monthly": [{"month": m, "count": n} for m, n in sorted(applied_monthly.items())],
         "undated_count": sum(a.applied_at is None for a in apps),
-        "upcoming": _schedule_items(apps, date.today(), date.today() + timedelta(days=UPCOMING_DAYS),
+        "upcoming": _schedule_items(apps, local_today(), local_today() + timedelta(days=UPCOMING_DAYS),
                                     results=False, upcoming_only=True),
         "days_to_first_result": _days_to_first_result(apps),
     }

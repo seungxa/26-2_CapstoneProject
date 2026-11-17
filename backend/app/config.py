@@ -99,6 +99,8 @@ class Settings:
         # 원본 녹음 보관 기간(일)과 만료 녹음 정리 주기(분)
         self.audio_retention_days: int = _number(env, "AUDIO_RETENTION_DAYS", 30, int)
         self.purge_interval_min: int = _number(env, "PURGE_INTERVAL_MIN", 60, int)
+        # 사용자 기준 날짜(D-day, 마감 정렬, 다가오는 일정)를 정하는 시간대. 배포 서버 시계는 UTC다
+        self.app_timezone: str = (env.get("APP_TIMEZONE") or "Asia/Seoul").strip()
         self.cors_origins: list[str] = [o.strip() for o in env.get("CORS_ORIGINS", "http://localhost:5173").split(",")
                                         if o.strip()]
 
@@ -119,6 +121,11 @@ class Settings:
                 raise ConfigError("SUPABASE_URL에는 프로젝트의 HTTPS 원점 주소가 필요해요(로컬 루프백은 HTTP 허용)")
         if not (0 < self.followup_timeout_sec < math.inf):
             raise ConfigError("FOLLOWUP_TIMEOUT_SEC must be a number of seconds greater than 0")
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(self.app_timezone)
+        except Exception:
+            raise ConfigError(f"APP_TIMEZONE must be a time zone name such as Asia/Seoul (now: {self.app_timezone!r})") from None
         if self.followup_threads < 1:
             raise ConfigError("FOLLOWUP_THREADS must be at least 1")
         if self.auth_disabled and not self.database_url.startswith("sqlite"):
