@@ -1,7 +1,6 @@
 import {supabase} from '../../../lib/supabase';
 import {api,configureApiClient} from '../api';
 import {createHostSessionBridge} from './session';
-import {sendSession} from './extensionBridge';
 
 // The existing team singleton owns tokens, persistence and refresh.
 configureApiClient({
@@ -19,7 +18,3 @@ export const hostSession=createHostSessionBridge({
 const stopIdentityCleanup=hostSession.subscribe(()=>{});
 if(import.meta.hot)import.meta.hot.dispose(stopIdentityCleanup);
 
-// Hand the sign-in token to the JobSeeker extension when it signs in, refreshes or signs out (no-op without it).
-supabase.auth.getSession().then(({data})=>{if(data.session)void sendSession(data.session.access_token);}).catch(()=>{});
-const {data:{subscription:extensionAuth}}=supabase.auth.onAuthStateChange((_event,session)=>{void sendSession(session?.access_token??null);});
-if(import.meta.hot)import.meta.hot.dispose(()=>extensionAuth.unsubscribe());

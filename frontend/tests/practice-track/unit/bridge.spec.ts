@@ -51,6 +51,12 @@ test("the background stores a session only from an allowed origin", async () => 
   expect(await send({ type: "jobseeker:archive", archive: { profile: { name: "홍길동" } } }, "http://localhost:5173")).toEqual({ ok: true });
   expect((local["jobseeker.archive.v1"] as { profile: { name: string } }).profile.name).toBe("홍길동");
   expect(await send({ type: "jobseeker:archive", archive: { education: "x" } }, "http://localhost:5173")).toEqual({ ok: false, error: "Check the record list format." });
+  // Groups the web does not send (saved answers live only in the extension) are kept
+  (local["jobseeker.archive.v1"] as { response: unknown[] }).response = [{ question: "지원 동기", answer: "저장한 답" }];
+  expect(await send({ type: "jobseeker:archive", archive: { profile: { name: "김철수" } } }, "http://localhost:5173")).toEqual({ ok: true });
+  const merged = local["jobseeker.archive.v1"] as { profile: { name: string }; response: { answer: string }[] };
+  expect(merged.profile.name).toBe("김철수");
+  expect(merged.response.map((r) => r.answer)).toEqual(["저장한 답"]);
   expect(await send({ type: "jobseeker:session", token: null }, "http://localhost:5173")).toEqual({ ok: true });
   expect(session).toEqual({});
 });

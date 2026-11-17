@@ -8,10 +8,10 @@ test("each press lights the next of twelve beads and a full turn adds a lap", ()
   let result;
   for (let i = 0; i < 12; i++) { result = press(state, "2026-11-17"); state = result.state; }
   expect(BEADS).toBe(12);
-  expect(result!.bead).toBe(0);
+  expect(result!.bead).toBe(11); // the twelfth press lights the twelfth bead
   expect(result!.lap).toBe(1);
   expect(state.today).toBe(12);
-  expect(press(state, "2026-11-17").bead).toBe(1);
+  expect(press(state, "2026-11-17").bead).toBe(0); // and the thirteenth starts the circle again
 });
 
 test("every 108th press of the day is a milestone", () => {

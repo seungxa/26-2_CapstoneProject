@@ -145,7 +145,13 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   if (parsed.kind === 'ping') { respond({ ok: true, version: manifest.version }); return; }
   (async () => {
     if (parsed.kind === 'session') await setAccessToken(parsed.token);
-    else await archiveRepository.save(validateArchive(parsed.archive));
+    else {
+      // Groups the web app does not send (saved answers live only in the extension) keep their current records
+      const incoming = validateArchive(parsed.archive);
+      const current = await archiveRepository.load();
+      for (const group of Object.keys(incoming)) if (!(group in parsed.archive) && Array.isArray(current?.[group])) incoming[group] = current[group];
+      await archiveRepository.save(incoming);
+    }
     return { ok: true };
   })().then(respond).catch((error) => respond({ ok: false, error: error.message }));
   return true;

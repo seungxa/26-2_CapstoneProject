@@ -4,7 +4,9 @@ import { normalizeArchive } from "../../../lib/archiveFields";
 import { pingExtension, sendArchive, sendSession } from "../integration/extensionBridge";
 import "../styles.css";
 
-type Info = { version: string; size: number };
+type Info = { version: string; size: number; web_origins?: string[] };
+/** Sites every build accepts (development); a release build adds the team web address */
+const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 type Status = { state: "checking" } | { state: "missing" } | { state: "installed"; version?: string };
 
 const kb = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
@@ -63,6 +65,11 @@ export default function ApplyPage() {
         <a className="button primary" href="/downloads/jobseeker-extension.zip" download="">
           Download{info ? ` (v${info.version}, ${kb(info.size)})` : ""}
         </a>
+        {info && ![...DEV_ORIGINS, ...(info.web_origins ?? [])].includes(window.location.origin) && (
+          <p className="small warn-text" data-testid="download-origin-warning">
+            This download can't connect to this site yet: the team needs to rebuild it for {window.location.origin}.
+          </p>
+        )}
         <ol aria-label="Install steps">
           <li>Unzip the file.</li>
           <li>Open <code>chrome://extensions</code> in Chrome.</li>

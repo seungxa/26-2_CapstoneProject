@@ -1,9 +1,9 @@
 // Talking to the JobSeeker Chrome extension from the web app: Chrome passes messages from the origins listed in the
 // extension's manifest (externally_connectable). Without the extension every call quietly reports "not installed".
 
-/** Fixed by the public key in extension/manifest.json; a different build can override it */
-export const EXTENSION_ID: string =
-  (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_EXTENSION_ID || "hbbocccjbnobncagkalnkeapkndiompd";
+import { EXTENSION_ID } from "../../../extensionId";
+
+export { EXTENSION_ID };
 
 type Runtime = { sendMessage: (id: string, message: unknown, callback: (reply: unknown) => void) => void };
 type Reply = { ok?: boolean; version?: string; error?: string } | undefined;

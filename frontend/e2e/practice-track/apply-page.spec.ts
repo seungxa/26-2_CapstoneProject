@@ -51,3 +51,18 @@ test("an archive the extension refuses shows its reason", async ({ page }, testI
   await page.getByRole("button", { name: "Send my profile" }).click();
   await expect(page.getByRole("alert")).toHaveText("Not a valid archive.");
 });
+
+test("signing out on a team page signs the extension out too", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "flow check");
+  await fakeExtension(page);
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => (window as any).sentToExtension().some((m: { type: string; token?: string }) => m.type === "jobseeker:session" && m.token))).toBe(true);
+  await page.getByRole("button", { name: "Log Out" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).sentToExtension().some((m: { type: string; token?: string | null }) => m.type === "jobseeker:session" && m.token === null))).toBe(true);
+});
+
+test("a download built for other sites says it cannot connect here", async ({ page }) => {
+  // The e2e site (port 5179) is not in the committed zip's allowed web addresses
+  await page.goto("/apply");
+  await expect(page.getByTestId("download-origin-warning")).toContainText("can't connect to this site");
+});
