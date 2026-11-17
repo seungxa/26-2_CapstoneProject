@@ -35,7 +35,7 @@
 
 ---
 
-### Task X1: 일정 컬럼, 정렬, 달력·통계 API
+### Task 1 (X1): 일정 컬럼, 정렬, 달력·통계 API
 
 **Files:**
 - Modify: `backend/app/models.py`(Application), `backend/app/schemas.py`(ApplicationIn·Patch·Out·SyncIn), `backend/app/routers/track.py`, `backend/app/db.py`(`validate_track_schema`), `supabase/schema.sql`(끝에 inclusion), `docs/practice-track/supabase-apply.md`(목록 7개·표)
@@ -72,7 +72,7 @@
 - [ ] **Step 4: 통과 확인** Run: `cd backend && .venv/bin/python -m pytest -q && .venv/bin/python -m pytest -q integration` Expected: 전부 PASS(통합 시험이 새 migration을 포함해 반복 적용·카탈로그 동일을 확인)
 - [ ] **Step 5: 커밋** `feat(track): add deadlines and next steps, due-date sorting, calendar and upcoming stats`
 
-### Task X2: D-day 칩과 일정 편집
+### Task 2 (X2): D-day 칩과 일정 편집
 
 **Files:**
 - Create: `frontend/src/features/practice-track/components/track/dday.ts`, `components/track/DueChip.tsx`
@@ -91,7 +91,7 @@
 - [ ] **Step 3: 실패 확인 → 구현 → 통과** Run: `cd frontend && npm run test:unit && npm run test:e2e -- track-schedule` (e2e는 `PATH=../backend/.venv/bin:$PATH`)
 - [ ] **Step 4: 커밋** `feat(track): show D-day chips and edit deadlines and next steps`
 
-### Task X3: 단계별 보드 `/track/board`
+### Task 3 (X3): 단계별 보드 `/track/board`
 
 **Files:**
 - Create: `pages/TrackBoard.tsx`, `components/track/board.ts`(순수: `groupByStage(apps, showClosed)`, `moveTarget(stage, dir)`)
@@ -122,7 +122,7 @@
 - [ ] **Step 3: 실패 확인 → 구현 → 통과**
 - [ ] **Step 4: 커밋** `feat(track): add a stage board with drag, buttons and status changes`
 
-### Task X4: 달력 `/track/calendar`
+### Task 4 (X4): 달력 `/track/calendar`
 
 **Files:**
 - Create: `pages/TrackCalendar.tsx`, `components/track/calendar.ts`(순수: `monthGrid(year, month)` → 6주×7일 날짜 문자열, 일요일 시작; `byDate(items)`)
@@ -149,7 +149,7 @@
 - [ ] **Step 3: 실패 확인 → 구현 → 통과**
 - [ ] **Step 4: 커밋** `feat(track): add a month calendar of applications, deadlines and results`
 
-### Task X5: 통계 강화
+### Task 5 (X5): 통계 강화
 
 **Files:**
 - Modify: `pages/StatsPage.tsx`, `styles.css`
