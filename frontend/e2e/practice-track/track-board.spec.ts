@@ -32,7 +32,8 @@ test("dragging a card onto a column moves it", async ({ page, request }, testInf
   const company = `끌기${Date.now()}`;
   const app = await newApp(request, company);
   await page.goto("/track/board");
-  await card(page, company).dragTo(column(page, "2nd Interview"));
+  // Drop near the column's heading: other runs leave cards in this column, so its middle can be below the screen
+  await card(page, company).dragTo(column(page, "2nd Interview"), { targetPosition: { x: 40, y: 16 } });
   await expect(column(page, "2nd Interview").getByRole("article", { name: new RegExp(`^${company}`) })).toBeVisible();
   await expect.poll(async () => (await (await request.get(`${API}/track/applications/${app.id}`)).json()).stage).toBe("2차면접");
 });

@@ -418,3 +418,14 @@
   .practice-track.practice-track .cal-list { display: block; }
   .practice-track.practice-track .cal-list .cal-chip { white-space: normal; }
 }
+
+/* Stats: monthly columns, upcoming list, pass-rate bars */
+.practice-track.practice-track .month-bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; align-items: end; height: 160px; }
+.practice-track.practice-track .month-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
+.practice-track.practice-track .month-fill { width: 70%; min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; }
+.practice-track.practice-track .month-n { font-size: 12px; font-variant-numeric: tabular-nums; }
+.practice-track.practice-track .month-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.practice-track.practice-track ul.upcoming { list-style: none; margin: 0; padding: 0; }
+.practice-track.practice-track ul.upcoming li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+.practice-track.practice-track ul.upcoming li:first-child { border-top: 0; }
+.practice-track.practice-track .bar.good { background: var(--good); }
