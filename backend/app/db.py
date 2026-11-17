@@ -173,6 +173,13 @@ def validate_track_schema(bind: Engine) -> None:
         if not present:
             raise RuntimeError('Track requires manual migration 20261105_version_immutability.sql')
 
+    # Without an applications table the schema was never applied; the checks above and supabase/precheck.sql cover that
+    columns = {c['name'] for c in inspector.get_columns('applications')} if 'applications' in tables else None
+    schedule = [f'applications.{name}' for name in ('deadline', 'next_step_on', 'next_step')
+                if columns is not None and name not in columns]
+    if schedule:
+        raise RuntimeError('Track requires manual migration 20261117_track_schedule.sql; missing: ' + ', '.join(schedule))
+
 
 def validate_insights_schema(bind: Engine) -> None:
     """Read-only schema capability check; PostgreSQL migrations are always manual."""

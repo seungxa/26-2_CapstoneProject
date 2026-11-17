@@ -323,6 +323,17 @@ class EssayItemOut(ORM):
     submission_revision: int = 0
 
 
+def _next_step(value):
+    """다음 일정 이름: 앞뒤 공백을 지우고, 비면 null."""
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+NextStep = Annotated[Annotated[str, Field(max_length=40)] | None, BeforeValidator(_next_step)]
+
+
 class ApplicationIn(BaseModel):
     company: str
     position: str
@@ -332,6 +343,9 @@ class ApplicationIn(BaseModel):
     stage: Stage = "서류"
     status: Status = "진행중"
     notes: str | None = None
+    deadline: date | None = None
+    next_step_on: date | None = None
+    next_step: NextStep = None
 
 
 class ApplicationPatch(BaseModel):
@@ -345,6 +359,9 @@ class ApplicationPatch(BaseModel):
     stage: Stage | None = None
     status: Status | None = None
     notes: str | None = None
+    deadline: date | None = None
+    next_step_on: date | None = None
+    next_step: NextStep = None
 
     @model_validator(mode="after")
     def _required_not_null(self):
@@ -365,6 +382,9 @@ class ApplicationOut(ORM):
     stage: str
     status: str
     notes: str | None
+    deadline: date | None = None
+    next_step_on: date | None = None
+    next_step: str | None = None
     source: str
     created_at: datetime
     updated_at: datetime
@@ -376,6 +396,16 @@ class ApplicationOut(ORM):
 class ApplicationDetail(ApplicationOut):
     events: list[StageEventOut]
     essay_items: list[EssayItemOut]
+
+
+class CalendarItem(BaseModel):
+    """달력·다가오는 일정의 한 항목. kind: applied | deadline | next_step | result"""
+    date: date
+    kind: Literal["applied", "deadline", "next_step", "result"]
+    application_id: str
+    company: str
+    position: str
+    label: str = ""
 
 
 class SyncEssay(BaseModel):
@@ -392,6 +422,7 @@ class SyncIn(BaseModel):
     job_category: str = "기타"
     url: str
     applied_at: date | None = None
+    deadline: date | None = None
     essays: list[SyncEssay] = []
     submitted: bool = True
 

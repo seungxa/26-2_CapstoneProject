@@ -1,6 +1,8 @@
 """③ Track: 지원 이력·단계 결과, 자소서 답변 버전, 확장 동기화, 통계."""
+import statistics
+from typing import Literal
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
@@ -12,6 +14,7 @@ from ..db import get_db
 from ..models import STAGES, STATUSES, AnswerVersion, Application, EssayItem, StageEvent, valid_id
 from ..services import track_state, track_versions
 from ..schemas import (
+    CalendarItem,
     ApplicationDetail,
     ApplicationIn,
     ApplicationOut,
@@ -96,6 +99,7 @@ def list_applications(
     job_category: str | None = None,
     q: str | None = None,
     url: str | None = None,
+    sort: Literal["recent", "due"] = "recent",
     user_id: str = Depends(current_user_id),
     db: Session = Depends(get_db),
 ):
@@ -110,7 +114,63 @@ def list_applications(
         stmt = stmt.where(Application.job_category == job_category)
     if q:
         stmt = stmt.where(Application.company.contains(q) | Application.position.contains(q))
-    return db.scalars(stmt.order_by(Application.updated_at.desc())).all()
+    rows = db.scalars(stmt.order_by(Application.updated_at.desc())).all()
+    if sort == "due":
+        today = date.today()
+        # 다가오는 날짜가 있는 건이 앞(이른 순), 날짜가 없으면 그다음, 결과가 난 건은 맨 뒤. 같은 묶음 안은 최근 수정순
+        rows = sorted(rows, key=lambda a: (2 if a.status in CLOSED else 0 if _due(a, today) else 1,
+                                           _due(a, today) or date.max))
+    return rows
+
+
+# ───────── 일정 ─────────
+
+CLOSED = ("합격", "불합격")
+CALENDAR_MAX_DAYS = 62
+_KINDS = ("applied", "deadline", "next_step", "result")
+
+
+def _due(app: Application, today: date) -> date | None:
+    """다가오는 날짜: 지원 전이면 마감일과 다음 일정 중 오늘 이후의 이른 것, 지원 뒤에는 다음 일정만. 결과가 난 건은 없음."""
+    if app.status in CLOSED:
+        return None
+    dates = [d for d in (app.deadline if app.applied_at is None else None, app.next_step_on) if d and d >= today]
+    return min(dates) if dates else None
+
+
+def _schedule_items(apps, start: date, end: date, *, results: bool, upcoming_only: bool = False) -> list[dict]:
+    """[start, end] 안의 날짜 항목. upcoming_only면 결과가 난 건과 지원 뒤의 마감일을 뺀다(다가오는 일정)."""
+    items = []
+
+    def add(day, kind, a, label=""):
+        if day and start <= day <= end:
+            items.append({"date": day, "kind": kind, "application_id": a.id, "company": a.company,
+                          "position": a.position, "label": label})
+
+    for a in apps:
+        if upcoming_only and a.status in CLOSED:
+            continue
+        if not upcoming_only:
+            add(a.applied_at, "applied", a)
+        if not (upcoming_only and a.applied_at is not None):
+            add(a.deadline, "deadline", a)
+        add(a.next_step_on, "next_step", a, a.next_step or "Next step")
+        if results:
+            for ev in a.events:
+                add(ev.event_date, "result", a, f"{ev.stage} {ev.result}")
+    return sorted(items, key=lambda i: (i["date"], _KINDS.index(i["kind"]), i["company"]))
+
+
+@router.get("/calendar", response_model=list[CalendarItem])
+def calendar(start: date, end: date, user_id: str = Depends(current_user_id), db: Session = Depends(get_db)):
+    """달력 칸에 들어갈 날짜 항목: 지원일, 마감일, 다음 일정, 단계 결과. 범위는 양끝을 포함해 최대 62일."""
+    if end < start:
+        raise HTTPException(422, "The end date is before the start date.")
+    if (end - start).days + 1 > CALENDAR_MAX_DAYS:
+        raise HTTPException(422, f"The calendar range can be at most {CALENDAR_MAX_DAYS} days.")
+    apps = db.scalars(select(Application).where(Application.user_id == user_id)
+                      .options(selectinload(Application.events))).all()
+    return _schedule_items(apps, start, end, results=True)
 
 
 @router.post("/applications", response_model=ApplicationDetail, status_code=201)
@@ -300,7 +360,7 @@ def _sync(db: Session, user_id: str, body: SyncIn) -> SyncOut:
     created = app is None
     if created:
         app = Application(user_id=user_id, company=body.company, position=body.position,
-                          job_category=body.job_category, url=body.url,
+                          job_category=body.job_category, url=body.url, deadline=body.deadline,
                           applied_at=body.applied_at or (date.today() if body.submitted else None),
                           source="extension")
         db.add(app)
@@ -309,6 +369,8 @@ def _sync(db: Session, user_id: str, body: SyncIn) -> SyncOut:
     elif body.submitted and not app.applied_at:
         app.applied_at = body.applied_at or date.today()
     app = _lock_app(db, user_id, app.id) if not created else app
+    if body.deadline is not None:
+        app.deadline = body.deadline
     if body.submitted and not app.applied_at:
         app.applied_at = body.applied_at or date.today()
     by_text = {i.question_text.strip(): i for i in app.essay_items}
@@ -381,4 +443,20 @@ def stats(user_id: str = Depends(current_user_id), db: Session = Depends(get_db)
         "monthly": [{"month": m, "count": n} for m, n in sorted(monthly.items())],
         "applied_monthly": [{"month": m, "count": n} for m, n in sorted(applied_monthly.items())],
         "undated_count": sum(a.applied_at is None for a in apps),
+        "upcoming": _schedule_items(apps, date.today(), date.today() + timedelta(days=UPCOMING_DAYS),
+                                    results=False, upcoming_only=True),
+        "days_to_first_result": _days_to_first_result(apps),
     }
+
+
+UPCOMING_DAYS = 14
+
+
+def _days_to_first_result(apps) -> dict:
+    """지원일에서 첫 결과(합격·불합격) 이벤트까지 걸린 날의 중앙값과 건수."""
+    gaps = []
+    for a in apps:
+        results = [ev.event_date for ev in a.events if ev.result in CLOSED and ev.event_date]
+        if a.applied_at and results:
+            gaps.append((min(results) - a.applied_at).days)
+    return {"median": float(statistics.median(gaps)) if gaps else None, "count": len(gaps)}

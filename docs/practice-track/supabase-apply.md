@@ -37,17 +37,18 @@
 
 **NEW: 앱 테이블이 하나도 없다** (팀 프로젝트에 처음 적용할 때)
 1. SQL Editor에서 [`supabase/schema.sql`](../../supabase/schema.sql)을 **한 번** 실행한다.
-2. 이어서 [`supabase/migrations/`](../../supabase/migrations/)의 파일을 **파일 이름 순서대로** 하나씩 실행한다.
+2. 이어서 [`supabase/migrations/`](../../supabase/migrations/)의 파일 7개를 **파일 이름 순서대로** 하나씩 실행한다.
    1. `20261015_interview_coaching.sql`
    2. `20261015_practice_p0.sql`
    3. `20261104_practice_insights.sql`
    4. `20261105_practice_integrity.sql`
    5. `20261105_track_integrity.sql`
    6. `20261105_version_immutability.sql`
+   7. `20261117_track_schedule.sql`
 3. 점검(2절)을 다시 돌려 `UPGRADE`가 나오고, 테이블 14줄이 모두 `ours`·`RLS on`인지 본다.
 
 **UPGRADE: 앱 테이블이 이미 있다** (예전에 적용했고 새 버전으로 올릴 때)
-- migration 6개를 파일 이름 순서대로 실행한다. 다시 실행해도 데이터가 바뀌거나 사라지지 않는다.
+- migration 7개를 파일 이름 순서대로 실행한다. 다시 실행해도 데이터가 바뀌거나 사라지지 않는다.
 - 점검 결과에서 테이블 줄이 `RLS off`면, 그 줄에 적힌 `alter table public.<테이블> enable row level security;`를 SQL Editor에서 실행한다. 정책은 이미 있어서 RLS만 다시 켜면 된다. migration은 처음 7개 테이블의 RLS를 다시 켜지 않는다.
 - 버킷 줄이 `absent`면 5절의 "버킷이 없을 때"를 따른다. migration은 버킷을 만들지 않는다.
 - `schema.sql`은 **다시 실행하지 않는다.** 정책을 이미 있는 이름으로 또 만들려다 오류로 멈춘다(그 앞까지의 문장은 이미 실행된 상태가 된다). 실수로 실행했다면 점검부터 다시 한다.
@@ -67,6 +68,7 @@ SQL Editor가 `drop policy` 같은 문장을 보고 "destructive operation" 경�
 | 파일 | 왜 필요한가 | 서버 설정 |
 |---|---|---|
 | `20261105_track_integrity.sql`, `20261105_version_immutability.sql` | 지원 관리 기록의 무결성. **없으면 앱이 시작하지 않는다** | 항상 필요 |
+| `20261117_track_schedule.sql` | 지원 건의 마감일·다음 일정(D-day, 보드, 달력). **없으면 앱이 시작하지 않는다** | 항상 필요 |
 | `20261104_practice_insights.sql`, `20261105_practice_integrity.sql` | 질문 유형·역량 태그(연습 회고의 분석) | 적용한 뒤에만 `PRACTICE_INSIGHTS_ENABLED=true` |
 | `20261015_interview_coaching.sql`, `20261015_practice_p0.sql` | 답변 점검·꼬리질문, 녹음 동의와 보관 | `schema.sql`에 이미 들어 있다. 예전 스키마에서 올릴 때 필요 |
 

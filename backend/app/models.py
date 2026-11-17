@@ -258,6 +258,10 @@ class Application(Base):
     stage: Mapped[str] = mapped_column(String(10), default="서류")
     status: Mapped[str] = mapped_column(String(10), default="진행중")
     notes: Mapped[str | None] = mapped_column(Text)
+    # 일정(supabase/migrations/20261117_track_schedule.sql): 공고 마감일, 다음 일정 날짜와 이름
+    deadline: Mapped[date | None] = mapped_column(Date)
+    next_step_on: Mapped[date | None] = mapped_column(Date)
+    next_step: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(10), default="web")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

@@ -100,6 +100,10 @@ def test_enabled_flag_rejects_unmigrated_schema_before_app_startup(cluster):
         with database.api(insights=False):
             pass
     database.apply(ROOT / "supabase/migrations/20261105_version_immutability.sql")
+    with pytest.raises(RuntimeError, match="20261117_track_schedule.sql"):
+        with database.api(insights=False):
+            pass
+    database.apply(ROOT / "supabase/migrations/20261117_track_schedule.sql")
     with pytest.raises(RuntimeError, match="20261104_practice_insights.sql"):
         with database.api(insights=True):
             pass

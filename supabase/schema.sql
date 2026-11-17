@@ -367,3 +367,9 @@ end $$;
 drop trigger if exists answer_versions_history_guard on answer_versions;
 create trigger answer_versions_history_guard before update or delete on answer_versions
  for each row execute function public.protect_answer_version_history();
+
+-- Full-schema inclusion: 20261117_track_schedule.sql
+-- Track schedule: a posting's deadline and the next step with its date. Additive and safe to run again.
+alter table applications add column if not exists deadline date;
+alter table applications add column if not exists next_step_on date;
+alter table applications add column if not exists next_step text;

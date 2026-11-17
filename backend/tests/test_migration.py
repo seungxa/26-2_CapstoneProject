@@ -117,7 +117,8 @@ APPS_WITHOUT_URL_INDEX = """CREATE TABLE applications (
 
 def _app_row(i: str, url: str | None) -> str:
     u = "NULL" if url is None else f"'{url}'"
-    return (f"INSERT INTO applications VALUES ('{i}', 'u1', '회사', '직무', '기타', {u}, NULL, '서류', '진행중', NULL, 'web',"
+    return ("INSERT INTO applications (id, user_id, company, position, job_category, url, applied_at, stage, status, notes,"
+            f" source, created_at, updated_at) VALUES ('{i}', 'u1', '회사', '직무', '기타', {u}, NULL, '서류', '진행중', NULL, 'web',"
             " '2026-01-01 00:00:00.000000', '2026-01-01 00:00:00.000000')")
 
 
