@@ -111,7 +111,7 @@ PASS  memory: 40% of 3.8 GB in use
 ## 7. 팀에 알릴 것
 
 - **팀 웹 배포 설정:** `VITE_API_URL=https://<이름>.duckdns.org`
-- **크롬 확장:** 앱이 이미 모든 `chrome-extension://` 출처를 허용한다(`backend/app/main.py`). 확장 쪽에서는 API 주소만 바꾸면 된다.
+- **크롬 확장:** 앱이 이미 모든 `chrome-extension://` 출처를 허용한다(`backend/app/main.py`). 팀 웹 주소가 정해지면 `node scripts/practice-track/build-extension.mjs --web-origin https://<팀 웹 주소>`로 확장 zip을 다시 빌드해 커밋한다(API 주소 기본값은 `https://team-api.duckdns.org`). 자세한 것은 [extension-contract.md](extension-contract.md).
 
 ## 8. 첫 실사용 점검 (사람이 한다)
 

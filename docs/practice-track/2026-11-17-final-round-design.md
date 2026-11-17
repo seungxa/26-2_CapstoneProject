@@ -201,3 +201,7 @@
 3. **계획 Z (시선 방향):** C2 → C3 → C4.
 
 계획마다 네이티브로 실행하고, 끝에 가장 강한 모델 검토자 한 명이 전체를 본다. 팀 저장소 브랜치 `feature/local-ai-gaze-direction`에 이어서 올린다.
+
+## 구현
+- 계획 X(Track): [2026-11-17-track-develop-plan.md](2026-11-17-track-develop-plan.md)
+- 계획 Y(확장·Apply·연결·A3): [2026-11-17-extension-apply-plan.md](2026-11-17-extension-apply-plan.md), 계약 문서 [extension-contract.md](extension-contract.md)
