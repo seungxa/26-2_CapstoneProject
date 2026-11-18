@@ -154,3 +154,9 @@ def test_missing_bucket_in_an_applied_project_points_to_the_guide(cluster):
         conn.execute("delete from storage.buckets where id = 'recordings'")
     [(status, detail)] = [(s, d) for sec, item, s, d in precheck(db) if sec == "storage" and item == "bucket recordings"]
     assert status == "absent" and "supabase-apply.md" in detail
+
+
+def test_rls_is_not_passed_when_the_tables_are_missing(cluster):
+    lines = _check_lines(cluster.database(schema="bootstrap"))
+    rls = [(grade, line) for grade, line in lines if line.startswith("row level security")]
+    assert rls and rls[0][0] != "PASS", rls

@@ -106,6 +106,9 @@ def _schema(settings, engine) -> list[tuple[str, str]]:
         rows = conn.execute(text("select c.relname, c.relrowsecurity from pg_class c "
                                  "where c.relnamespace = 'public'::regnamespace and c.relname = any(:names)"),
                             {"names": [t.name for t in Base.metadata.sorted_tables]}).all()
+    if len(rows) < len(Base.metadata.sorted_tables):
+        lines.append(("SKIP", "row level security: checked once every app table exists"))
+        return lines
     off = sorted(name for name, enabled in rows if not enabled)
     fix = " ".join(f"alter table public.{name} enable row level security;" for name in off)
     lines.append(("FAIL", f"row level security: off on {', '.join(off)}; signed-in users could read others' rows. "
