@@ -1,5 +1,4 @@
 import { archiveRepository } from './repository.js';
-import { validateArchive } from './archive.js';
 import { schema, groupNames, flatten, suggest, stageSource, profileKey } from './matching.js';
 import { connectToTab } from './tab-connection.js';
 import { rulePlan, planForSource } from './planner.js';
@@ -53,6 +52,22 @@ function readEditor() {
   }
 }
 function resetPlan() { fields = []; $('fields').replaceChildren();  $('fill').disabled = true; }
+function validateArchive(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw Error('Not a valid archive.');
+  const result = { profile: {}, education: [], experience: [], activity: [], award: [] };
+  for (const [group, keys] of Object.entries(schema)) {
+    const records = group === 'profile' ? [data.profile || {}] : data[group] || [];
+    if (!Array.isArray(records) || records.length > 100) throw Error('Check the record list format.');
+    const clean = records.map(record => {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) throw Error('Check the record format.');
+      const item = {};
+      for (const key of Object.keys(keys)) { const value = record[key] ?? ''; if (typeof value !== 'string' || value.length > 20000) throw Error('Each value must be text under 20,000 characters.'); item[key] = value; }
+      return item;
+    });
+    result[group] = group === 'profile' ? clean[0] : clean;
+  }
+  return result;
+}
 async function connect() {
   resetPlan();
   const tab = await connectToTab(chrome);

@@ -6,14 +6,11 @@ import { planForSource } from '../planner.js';
 import '../values.js';
 import {fieldMappings,signatureFor} from '../mappings.js';
 const V=globalThis.JobSeekerValues;
-// Merged extension (0.8.0): api.js is the second network module, the JobSeeker Track API client (the team's own
-// server, sign-in token from the web app). Everything else still makes no network calls.
-const NETWORK_MODULES=['llm.js','api.js'];
-test('network access lives only in the optional AI module and the Track API client; no local relay server',async()=>{
+test('network access lives only in the optional AI module; no local relay server',async()=>{
   const root=new URL('../',import.meta.url),files=await readdir(root);
   assert.ok(!files.includes('model-server'));
-  for(const file of files.filter(file=>file.endsWith('.js')&&!NETWORK_MODULES.includes(file))){const code=await readFile(new URL(file,root),'utf8');assert.doesNotMatch(code,/\bfetch\s*\(|XMLHttpRequest|8766|JS_MODEL|modelPlan|checkModel/,file);}
-  for(const file of NETWORK_MODULES){const code=await readFile(new URL(file,root),'utf8');assert.doesNotMatch(code,/8766|eval\(|new Function/,file);}
+  for(const file of files.filter(file=>file.endsWith('.js')&&file!=='llm.js')){const code=await readFile(new URL(file,root),'utf8');assert.doesNotMatch(code,/\bfetch\s*\(|XMLHttpRequest|8766|JS_MODEL|modelPlan|checkModel/,file);}
+  const llm=await readFile(new URL('llm.js',root),'utf8');assert.doesNotMatch(llm,/8766|eval\(|new Function/);
 });
 test('education/career date labels resolve without an explicit section',()=>{
   const sources=flatten({education:[{start:'2020-03',end:'2024-02',status:'졸업'}],experience:[{start:'2024-03',end:'2025-01',status:'퇴사'}]});
