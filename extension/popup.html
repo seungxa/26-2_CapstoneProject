@@ -12,13 +12,18 @@
     </header>
 
     <p id="error" class="err" role="alert" hidden></p>
-    <button id="relogin" hidden>다시 로그인</button>
 
     <section id="autofill">
       <button id="fill" class="primary wide" disabled>이 지원서 채우기</button>
       <p class="small muted">저장한 프로필로 이 페이지의 지원서를 채워요. 옆 패널에서 확인한 뒤 넣어요.</p>
     </section>
 
+    <section id="track-off" hidden>
+      <p class="small muted" id="track-off-msg"></p>
+      <button id="relogin" hidden>로그인하러 가기</button>
+    </section>
+
+    <div id="track" hidden>
     <section id="today-box" aria-labelledby="today-title" hidden>
       <h2 id="today-title">오늘 할 일</h2>
       <ul id="today-list" class="due-list"></ul>
@@ -39,7 +44,6 @@
         </div>
         <div class="row">
           <button id="ex-open">상세 보기</button>
-          <button id="ex-practice">면접 질문 만들기</button>
           <button id="ex-submit">지원 완료로 표시</button>
         </div>
       </div>
@@ -71,20 +75,10 @@
       <ul id="recent"></ul>
     </section>
 
-    <details id="beads-box">
-      <summary>사이버 염주</summary>
-      <div class="beads-wrap">
-        <div class="beads" aria-hidden="true"></div>
-        <button id="bead" class="bead-press">한 알 넘기기</button>
-      </div>
-      <p class="small center" data-testid="beads-count" id="beads-count" aria-live="polite"></p>
-      <p class="small center accent" id="beads-cheer" hidden>오늘도 수고했어요</p>
-    </details>
-
     <footer class="row">
       <button id="open-track" class="grow">대시보드 열기</button>
-      <button id="open-practice" class="grow">면접 연습</button>
     </footer>
+    </div>
 
     <script type="module" src="popup.js"></script>
   </body>

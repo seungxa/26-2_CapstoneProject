@@ -1,7 +1,6 @@
 import { api, ApiError } from "./api.js";
 import { guessPosting, readPage } from "./extract.js";
 import { getSettings } from "./settings.js";
-import { BEADS, STORAGE_KEY, load as loadBeads, press as pressBead } from "./beads.js";
 import { daysUntil, ddayText, dueOf, todayLocal } from "./schedule.js";
 
 const $ = (id) => document.getElementById(id);
@@ -20,12 +19,24 @@ function clearAccountView() {
   for (const id of ["company", "position"]) $(id).value = "";
 }
 
+/** 지원 관리(Track) 부분을 접고 조용한 안내만 남긴다. 자동입력은 서버 없이 그대로 쓴다. */
+function trackOff(signIn) {
+  $("track").hidden = true;
+  $("track-off").hidden = false;
+  $("track-off-msg").textContent = signIn
+    ? "지원 관리 연동은 JobSeeker에 로그인하면 보여요. 자동입력은 서버 없이 쓸 수 있어요."
+    : "지원 관리 연동은 JobSeeker 서버에 연결되면 보여요. 자동입력은 서버 없이 쓸 수 있어요.";
+  $("relogin").hidden = !signIn;
+}
+
 function handleError(error, mine) {
   if (error instanceof ApiError && error.status === 401) {
     if (mine !== generation) return;
     clearAccountView();
-    $("relogin").hidden = false;
-  } else if (mine !== generation) return;
+    trackOff(true);
+    return;
+  }
+  if (mine !== generation) return;
   showError(error.message);
 }
 
@@ -73,7 +84,6 @@ function showExisting(app, justSaved = false, mine = generation) {
   $("ex-name").textContent = `${app.company} · ${app.position}`;
   statusChip($("ex-status"), app);
   $("ex-open").onclick = () => openWeb(`/track/${app.id}`);
-  $("ex-practice").onclick = () => openWeb(`/practice?application=${app.id}`);
   $("ex-submit").onclick = async () => {
     if (saving) return;
     saving = true;
@@ -177,14 +187,15 @@ $("fill").onclick = () => {
 };
 
 $("open-track").onclick = () => openWeb("/track");
-$("open-practice").onclick = () => openWeb("/practice");
 
 $("relogin").onclick = async () => {
-  const { loginUrl } = await getSettings();
-  if (!loginUrl) return showError("설정에서 팀 로그인 주소를 입력하세요. 로그인 담당자의 토큰 연결이 필요합니다.");
-  await chrome.tabs.create({ url: loginUrl });
+  // 로그인 주소를 따로 정하지 않았으면 웹의 Apply 페이지: 로그인하면 거기서 토큰을 확장에 넘겨준다
+  const { loginUrl, webUrl } = await getSettings();
+  await chrome.tabs.create({ url: loginUrl || webUrl.replace(/\/$/, "") + "/apply" });
   window.close();
 };
+
+
 /** 앞으로 7일 안의 마감일·다음 일정(D-day 순 최대 5건). 오늘·내일은 "오늘 할 일"로 따로 보인다 */
 async function loadUpcoming(mine = generation) {
   const apps = await api.upcoming();
@@ -211,48 +222,29 @@ async function loadUpcoming(mine = generation) {
   $("soon-box").hidden = later.length === 0;
 }
 
-function loadAccount() {
+/** 서버가 답할 때만 지원 관리 부분을 연다. 연결이 안 되면(서버 없음) 빨간 오류 없이 접어 둔다. */
+async function loadAccount() {
   const mine = generation;
-  Promise.all([loadPosting(mine), loadRecent(mine), loadUpcoming(mine)]).catch((e) => handleError(e, mine));
+  try {
+    await loadRecent(mine);
+  } catch (error) {
+    if (mine !== generation) return;
+    if (error instanceof ApiError && error.status === 401) return handleError(error, mine);
+    if (!(error instanceof ApiError)) return trackOff(false);
+    trackOff(false);
+    return showError(error.message);
+  }
+  if (mine !== generation) return;
+  $("track-off").hidden = true;
+  $("track").hidden = false;
+  Promise.all([loadPosting(mine), loadUpcoming(mine)]).catch((e) => handleError(e, mine));
 }
 
-// ───────── 사이버 염주 ─────────
-const beadEls = Array.from({ length: BEADS }, (_, i) => {
-  const el = document.createElement("span");
-  el.className = "bead";
-  el.style.setProperty("--i", i);
-  return el;
-});
-document.querySelector(".beads").append(...beadEls);
-let beads = loadBeads(null, todayLocal());
-function drawBeads(lit = -1) {
-  $("beads-count").textContent = `오늘 ${beads.today}번 · 모두 ${beads.total}번`;
-  beadEls.forEach((el, i) => el.classList.toggle("lit", i === lit));
-}
-chrome.storage.local.get(STORAGE_KEY).then((saved) => {
-  beads = loadBeads(saved[STORAGE_KEY], todayLocal());
-  $("beads-box").open = beads.open;
-  drawBeads(beads.today ? (beads.today - 1) % BEADS : -1);
-}).catch(() => drawBeads());
-$("beads-box").addEventListener("toggle", () => {
-  beads = { ...beads, open: $("beads-box").open };
-  chrome.storage.local.set({ [STORAGE_KEY]: beads }).catch(() => {});
-});
-$("bead").onclick = () => {
-  const result = pressBead(beads, todayLocal());
-  beads = result.state;
-  drawBeads(result.bead);
-  chrome.storage.local.set({ [STORAGE_KEY]: beads }).catch(() => {});
-  if (result.milestone) {
-    $("beads-cheer").hidden = false;
-    setTimeout(() => { $("beads-cheer").hidden = true; }, 2000);
-  }
-};
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area !== "session" || !changes.accessToken) return;
   clearAccountView();
-  showError(changes.accessToken.newValue ? "" : "로그인 세션이 종료되었습니다. 다시 로그인하세요.");
-  $("relogin").hidden = !!changes.accessToken.newValue;
+  showError("");
   if (changes.accessToken.newValue) loadAccount();
+  else trackOff(true);
 });
 loadAccount();

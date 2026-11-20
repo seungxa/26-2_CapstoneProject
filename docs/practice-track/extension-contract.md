@@ -13,12 +13,12 @@
 
 | 부분 | 파일 | 하는 일 |
 |---|---|---|
-| 팝업(진입점) | `popup.html`·`popup.js`·`popup.css` | 아이콘을 누르면 뜬다. 이 지원서 채우기, 오늘 할 일·다가오는 일정, 공고 저장(마감일), 최근 지원 현황, 사이버 염주 |
+| 팝업(진입점) | `popup.html`·`popup.js`·`popup.css` | 아이콘을 누르면 뜬다. 이 지원서 채우기(서버 없이 동작). 서버가 답할 때만: 오늘 할 일·다가오는 일정, 공고 저장(마감일), 최근 지원 현황 |
 | 사이드 패널 | `panel.*`와 seungxa 모듈 | 자동입력(0.7.0 그대로) |
 | 배경 | `background.js` | 탭 연결(`connectTab`), 웹에서 오는 메시지 처리, seungxa의 주소 검색 팝업 연결 |
 | 내용 스크립트 | `values.js`·`widgets.js`·`content.js`·`address-agent.js` | 0.7.0 그대로 |
 | 지원 관리 API | `api.js`·`settings.js`·`config.js` | 팀 API(`/track/…`) 호출, 주소 설정, 로그인 토큰 |
-| 순수 모듈 | `archive.js`·`bridge.js`·`beads.js`·`schedule.js`·`extract.js` | 아카이브 검사, 메시지 검사, 염주 계산, D-day, 공고 제목 추정 |
+| 순수 모듈 | `archive.js`·`bridge.js`·`schedule.js`·`extract.js` | 아카이브 검사, 메시지 검사, D-day, 공고 제목 추정 |
 
 ## 2. seungxa 파일 중 바꾼 곳
 
@@ -100,7 +100,7 @@
 
 - **확인한 것:**
   - seungxa 시험 31개
-  - 팝업 e2e(크롬 API 대역): 채우기 버튼, 일정, 마감일 저장, 염주
+  - 팝업(크롬 API 대역, `extension-popup.spec.ts`): 서버 없음·로그인 필요·연결됨 세 상태, 채우기 버튼
   - 배경 메시지 처리(대역): 허용·거절 출처, 세션·아카이브 저장
   - 웹 쪽 연결(대역), 빌드 재현성, Apply 페이지 e2e
 - **하지 못한 것:**

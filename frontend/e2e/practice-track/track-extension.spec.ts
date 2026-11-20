@@ -19,7 +19,7 @@ async function popup(page: import('@playwright/test').Page, existing = false, du
     const calls: unknown[] = [];
     (window as any).extensionCalls = () => calls;
     (window as any).chrome = {
-      tabs: { query: async () => [{ id: 1, windowId: 9, url: "https://example.com/job/1", title: "[회사] 개발자" }], create: async () => {} },
+      tabs: { query: async () => [{ id: 1, windowId: 9, url: "https://example.com/job/1", title: "[회사] 개발자" }], create: async ({ url }: { url: string }) => { calls.push({ tab: url }); } },
       sidePanel: { open: async (options: unknown) => { calls.push({ sidePanel: options }); } },
       runtime: { sendMessage: async (message: unknown) => { calls.push({ message }); return { ok: true }; } },
       scripting: { executeScript: async () => { reads++; return [{ result: { url: "https://example.com/job/1", title: "[회사] 개발자", ogTitle: "", siteName: "", h1: "" } }]; } },
@@ -82,21 +82,27 @@ test("account switching clears stale recent rows and old request results", async
   release();
 });
 
-test("401 clears session and offers login again", async ({ page }) => {
+test("401 clears session, folds the Track part and offers login again", async ({ page }) => {
   await popup(page, true);
+  await expect(page.getByRole('button', { name: '지원 완료로 표시' })).toBeVisible(); // the posting loads after the server answers
   await page.route('**/fake-api/track/**', (route) => route.fulfill({ status: 401, json: { detail: '세션이 만료되었습니다' } }));
   await page.getByRole('button', { name: '지원 완료로 표시' }).click();
-  await expect(page.getByRole('button', { name: '다시 로그인' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '로그인하러 가기' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).chrome.storage.session.get())).toEqual({});
   await expect(page.locator('#recent')).toBeEmpty();
+  await expect(page.locator('#track')).toBeHidden();
+  await expect(page.getByRole('alert')).toBeHidden();
+  await expect(page.getByRole('button', { name: '이 지원서 채우기' })).toBeEnabled();
 });
 
-test("login CTA requires configured team URL instead of assuming a web login route", async ({ page }) => {
+test("login CTA without a configured login URL opens the web Apply page, which hands over the token", async ({ page }) => {
   await popup(page, true);
+  await expect(page.getByRole('button', { name: '지원 완료로 표시' })).toBeVisible(); // the posting loads after the server answers
   await page.route('**/fake-api/track/**', (route) => route.fulfill({ status: 401, json: { detail: 'expired' } }));
+  await page.evaluate(() => { window.close = () => {}; });
   await page.getByRole('button', { name: '지원 완료로 표시' }).click();
-  await page.getByRole('button', { name: '다시 로그인' }).click();
-  await expect(page.getByRole('alert')).toContainText('팀 로그인 주소');
+  await page.getByRole('button', { name: '로그인하러 가기' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).extensionCalls())).toContainEqual({ tab: 'http://localhost:5173/apply' });
 });
 
 test("Fill this application opens the side panel and asks the background to connect the tab", async ({ page }) => {
@@ -137,16 +143,4 @@ test("saving a posting sends its deadline", async ({ page }) => {
   const body = page.waitForRequest((r) => r.url().endsWith('/track/sync'));
   await page.getByRole('button', { name: '지원 관리에 저장' }).click();
   expect((await body).postDataJSON()).toMatchObject({ deadline: plus(7) });
-});
-
-test("the cyber prayer beads count presses and keep them after reopening", async ({ page }) => {
-  await popup(page);
-  const bead = page.getByRole('button', { name: '한 알 넘기기' });
-  for (let i = 0; i < 3; i++) await bead.click();
-  await expect(page.getByTestId('beads-count')).toHaveText('오늘 3번 · 모두 3번');
-  await expect(page.locator('.bead.lit')).toHaveCount(1);
-  await page.reload();
-  await expect(page.getByTestId('beads-count')).toHaveText('오늘 3번 · 모두 3번');
-  await page.getByRole('button', { name: '한 알 넘기기' }).press('Space');
-  await expect(page.getByTestId('beads-count')).toHaveText('오늘 4번 · 모두 4번');
 });
