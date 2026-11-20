@@ -15,6 +15,9 @@ export class ApiError extends Error {
   }
 }
 
+/** 서버가 응답 없이 연결을 버리면 브라우저는 수십 초를 기다린다. 그 전에 끊고 "연결 안 됨"으로 본다 */
+export const TIMEOUT_MS = 5000;
+
 async function req(method, path, body) {
   const { apiUrl } = await getSettings();
   const token = await getToken();
@@ -27,6 +30,7 @@ async function req(method, path, body) {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
     throw new Error(`백엔드(${apiUrl})에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.`);

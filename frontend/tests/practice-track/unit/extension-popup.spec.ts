@@ -7,7 +7,7 @@ const ROOT = new URL("../../../../extension/", import.meta.url);
 const ORIGIN = "http://ext.test";
 const API = "http://localhost:8000";
 
-async function openPopup(page: Page, api: "down" | "401" | "up", tabUrl = "https://jobs.example.com/apply") {
+async function openPopup(page: Page, api: "down" | "401" | "up" | "silent", tabUrl = "https://jobs.example.com/apply") {
   await page.route(`${ORIGIN}/**`, async (route) => {
     const path = new URL(route.request().url()).pathname.slice(1) || "popup.html";
     const type = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : "text/html";
@@ -15,6 +15,7 @@ async function openPopup(page: Page, api: "down" | "401" | "up", tabUrl = "https
   });
   await page.route(`${API}/**`, async (route) => {
     if (api === "down") return route.abort("connectionrefused");
+    if (api === "silent") return; // never answers, like a firewall that drops packets
     if (api === "401") return route.fulfill({ status: 401, json: { detail: "Not authenticated" } });
     const path = new URL(route.request().url()).pathname;
     const body = path === "/track/stats" ? { total: 1, status: { 진행중: 1, 합격: 0, 불합격: 0 } }
@@ -71,4 +72,11 @@ test("the prayer beads and interview practice links are gone", async ({ page }) 
   await expect(page.getByText("면접")).toHaveCount(0);
   await expect(page.getByText("염주")).toHaveCount(0);
   await expect(page.locator("#open-track")).toBeVisible();
+});
+
+test("a server that never answers folds the Track part within a few seconds", async ({ page }) => {
+  await openPopup(page, "silent");
+  await expect(page.locator("#track-off")).toBeVisible({ timeout: 8000 });
+  await expect(page.locator("#error")).toBeHidden();
+  await expect(page.locator("#fill")).toBeEnabled();
 });

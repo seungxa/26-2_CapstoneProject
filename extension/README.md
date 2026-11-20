@@ -121,28 +121,23 @@ AI를 끄면 이전처럼 규칙만으로 동작합니다.
 - **최근 지원 현황:** 최근 5건과 전체·진행중·합격 수
 - **대시보드 열기:** 웹 대시보드를 새 탭으로 엽니다.
 
-### 설치(개발용)
+### 서버 없이 쓸 때
 
-1. 백엔드(`backend/`)와 웹(`web/`)을 먼저 실행합니다. 방법은 저장소 루트 README에 있습니다.
-2. 크롬 주소창에 `chrome://extensions` 입력
-3. 오른쪽 위 **개발자 모드** 켜기
-4. **압축해제된 확장 프로그램 로드** → 이 `extension-track` 폴더 선택
-5. 퍼즐 아이콘에서 JobSeeker를 고정해 두면 편합니다.
+- 자동입력(옆 패널)은 서버·웹 없이 동작합니다. 프로필은 옆 패널에서 JSON 아카이브를 가져오거나, 웹 Apply 페이지의 **Send profile**로 넘겨받습니다.
+- 팝업은 서버에 먼저 물어보고, 답이 없으면(연결 실패 또는 5초 안에 응답 없음) 지원 관리 부분을 접고 안내 한 줄만 보여 줍니다.
 
-백엔드·웹 주소가 다르면 팝업 오른쪽 위 **설정**에서 바꿉니다. 배포 주소로 바꿀 때는 `manifest.json`의 `host_permissions`에도 추가해야 합니다. 설정 화면은 저장한 API 주소가 `host_permissions`에 없으면 경고를 띄웁니다(백엔드 CORS가 `chrome-extension://`을 허용하므로 요청 자체는 되지만, 배포 주소는 두 곳을 함께 맞춥니다).
+### 서버와 함께 쓸 때(개발용)
 
-### ① Apply 확장과 합치는 방법
+1. 백엔드(`backend/`)와 웹(`frontend/`)을 실행합니다. 방법은 저장소 루트 README에 있습니다.
+2. 크롬 `chrome://extensions` → **개발자 모드** → **압축해제된 확장 프로그램 로드** → 이 `extension` 폴더를 고릅니다.
+3. 백엔드·웹 주소가 다르면 팝업 오른쪽 위 **설정**에서 바꿉니다. 배포 주소는 `manifest.json`의 `host_permissions`에도 있어야 합니다. 설정 화면은 API 주소가 거기 없으면 경고합니다.
 
-팝업만 독립적으로 동작하도록 만들어 두었습니다. ① 확장에 합칠 때는:
+### 로그인과 토큰
 
-- `popup.html`, `popup.css`, `popup.js`, `api.js`, `extract.js`, `settings.js`를 ① 확장 폴더로 옮기고 `action.default_popup`을 `popup.html`로 지정
-- `permissions`에 `activeTab`, `scripting`, `storage`, `host_permissions`에 백엔드 주소 추가
-- ①이 지원서 제출을 감지하면 같은 `POST /track/sync`에 `essays`(문항·답변)와 `submitted: true`를 보내면 됩니다. 팝업에서 먼저 저장한 공고와 URL이 같으면 같은 지원 건으로 합쳐집니다.
-- 로그인을 붙이는 쪽은 `settings.js`의 `setAccessToken(token)`으로 Supabase 액세스 토큰을 넣고, 로그아웃 때 `setAccessToken(null)`을 부릅니다. `api.js`의 `getToken()`이 이 값(`chrome.storage.session`, 브라우저를 닫으면 지워짐)을 읽어 `Authorization: Bearer`로 붙입니다. 토큰이 없으면 개발 모드(`AUTH_DISABLED=true`) 서버에서만 동작합니다.
-- 토큰 수명주기 연결: 로그인 성공·토큰 갱신·계정 변경 때 `setAccessToken(nextToken)`, 로그아웃 때 `setAccessToken(null)`을 호출합니다. 팝업은 `chrome.storage.onChanged`를 받아 이전 계정의 목록·공고·진행 중 응답을 무효화합니다. 401은 HTTP 상태를 가진 `ApiError`로 유지하며, 해당 요청에 쓴 토큰만 삭제합니다(그사이 새로 갱신된 토큰은 보존).
-- **다시 로그인** 버튼은 설정의 선택 항목 `팀 로그인 주소(loginUrl)`를 엽니다. 빈 값이면 설정 안내를 보여 줍니다. 이 저장소에는 공통 로그인 화면·로그인 완료 전달 브리지가 없으며, 실제 팀 로그인 담당자가 위 훅을 연결해야 합니다.
-- 새 클라이언트는 `submitted`를 항상 명시합니다. 팝업 저장은 체크 여부의 boolean, 지원 완료 전환은 `true`, 문항 없이 저장할 때는 `essays: []`를 보냅니다. ① 확장은 사용자 승인 없이 본문·답변을 수집하거나 자동 전송하지 않습니다.
-- 자동 테스트: `frontend/tests/practice-track/unit/extension.spec.ts`는 Chrome 저장소 대역으로 공고 추정·토큰 저장·주소 권한·명시 submitted·401 상태와 토큰 경합을 검사합니다. `frontend/e2e/practice-track/track-extension.spec.ts`는 팝업 DOM과 API·Chrome 대역으로 사용자 클릭 수집·기존 공고 제출 전환·401/재로그인·계정 전환을 검사합니다. 실제 Chrome 설치·권한·페이지 주입·Supabase/팀 로그인 연결은 검증하지 않았습니다.
+- 웹 Apply 페이지가 로그인 토큰을 확장에 넘겨줍니다(`jobseeker:session`, [extension-contract.md](../docs/practice-track/extension-contract.md)).
+- 토큰은 `chrome.storage.session`에만 둡니다. 브라우저를 닫으면 지워집니다. 토큰이 없으면 개발 모드(`AUTH_DISABLED=true`) 서버에서만 지원 관리가 동작합니다.
+- 401을 받으면 그 요청에 쓴 토큰만 지우고, 팝업은 지원 관리 부분을 접은 채 **로그인하러 가기**를 보여 줍니다. 이 버튼은 설정의 `팀 로그인 주소(loginUrl)`를 엽니다. 비어 있으면 웹 Apply 페이지를 엽니다.
+- 클라이언트는 `submitted`를 항상 명시합니다. 사용자 승인 없이 본문·답변을 수집하거나 자동 전송하지 않습니다.
 
 ### 회사·직무 추정 방식
 

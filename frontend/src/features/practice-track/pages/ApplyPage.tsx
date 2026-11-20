@@ -99,6 +99,7 @@ export default function ApplyPage() {
           <li>On a job posting, click the JobSeeker icon and choose <strong>Save posting</strong>.</li>
           <li>On an application form, choose <strong>Fill this application</strong> and check the side panel before filling.</li>
           <li>Saved postings and deadlines appear under Track.</li>
+          <li>Autofill works on its own: this site and the server do not need to be open. Saving postings needs the server and your sign-in.</li>
         </ul>
       </section>
     </div>
