@@ -1,0 +1,19 @@
+# Installed to /etc/caddy/Caddyfile by install.sh, which puts the server's domain in place of @DOMAIN@.
+# Caddy gets and renews the https certificate by itself (Let's Encrypt) once the domain points to this server.
+{
+	servers {
+		timeouts {
+			# Caddy 2.11.6+ drops a response with no progress for 1 minute by default. A long recording is
+			# transcribed inside its upload request, so allow 10 minutes
+			write_idle 10m
+		}
+	}
+}
+
+@DOMAIN@ {
+	# The API accepts recordings up to 25 MB
+	request_body {
+		max_size 30MB
+	}
+	reverse_proxy 127.0.0.1:8000
+}

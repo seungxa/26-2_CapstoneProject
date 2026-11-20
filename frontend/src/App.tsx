@@ -33,7 +33,7 @@ function AppLayout() {
   const [errorMessage, setErrorMessage] = useState('')
 
   const featurePages = ['/profile', '/apply', '/practice', '/track']
-  const showFeatureNav = featurePages.includes(location.pathname)
+  const showFeatureNav = featurePages.some(path => location.pathname === path || location.pathname.startsWith(path + '/'))
 
   useEffect(() => {
     let active = true
@@ -194,7 +194,7 @@ function AppLayout() {
           />
 
           <Route
-            path="/practice"
+            path="/practice/*"
             element={
               <ProtectedRoute>
                 <Practice />
@@ -203,7 +203,7 @@ function AppLayout() {
           />
 
           <Route
-            path="/track"
+            path="/track/*"
             element={
               <ProtectedRoute>
                 <Track />

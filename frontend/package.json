@@ -7,9 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:unit": "playwright test -c playwright.unit.config.ts",
+    "test:e2e": "playwright test -c playwright.practice-track.config.ts",
+    "test:auth": "playwright test -c playwright.team-auth.config.ts",
+    "typecheck:practice-track": "tsc -p tsconfig.practice-track.json",
+    "build:practice-track": "npm run typecheck:practice-track && vite build"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.1",
     "@supabase/supabase-js": "^2.118.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -17,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.64.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

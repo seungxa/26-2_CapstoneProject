@@ -1,0 +1,134 @@
+import { expect, test } from '@playwright/test';
+import { API } from './env';
+import { label } from '../../src/features/practice-track/labels';
+test('classification controls, frozen review and accessible competency history', async ({page,request}) => {
+ const observed:{method:string;path:string}[]=[];
+ page.on('request',r=>{const u=new URL(r.url());if(u.pathname.startsWith('/practice/'))observed.push({method:r.method(),path:u.pathname});});
+ const taxonomy=await (await request.get(`${API}/practice/taxonomy`)).json();
+ test.skip(!taxonomy.enabled,'taxonomy schema is disabled');
+ const q=await (await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`분류 접근성 질문 ${Date.now()}`}})).json();
+ await page.goto('/practice');
+ const type=taxonomy.question_types[0].key, otherType=taxonomy.question_types[1].key, competency=taxonomy.competencies[0].key;
+ const row=page.locator('.qlist li').filter({hasText:q.text});
+ await row.getByRole('button',{name:'Edit Tags',exact:true}).click();
+ await row.getByRole('combobox',{name:'Question type',exact:true}).selectOption(type);
+ await row.getByLabel(label('competency',competency),{exact:true}).check();
+ const saved=page.waitForResponse(r=>r.request().method()!=='GET'&&r.url().includes(`/practice/questions/${q.id}`));
+ await row.getByRole('button',{name:'Save',exact:true}).click();
+ expect((await saved).ok()).toBe(true);
+ await expect(row.getByRole('group',{name:'Tags'})).toHaveCount(0);
+ const stored=(await (await request.get(`${API}/practice/questions`)).json()).find((x:{id:string})=>x.id===q.id);
+ expect(stored).toMatchObject({question_type:type,competency_keys:[competency]});
+ // The saved tags show when the editor opens again.
+ await row.getByRole('button',{name:'Edit Tags',exact:true}).click();
+ await expect(row.getByRole('combobox',{name:'Question type',exact:true})).toHaveValue(type);
+ await expect(row.getByLabel(label('competency',competency),{exact:true})).toBeChecked();
+ await row.getByRole('button',{name:'Cancel',exact:true}).click();
+ // Question type and competency filters are folded under More Options.
+ await page.getByText('More Options',{exact:true}).click();
+ const filters=page.getByRole('group',{name:'Filters',exact:true});
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption(otherType);
+ await expect(row).toHaveCount(0);
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption(type);
+ await filters.getByLabel(label('competency',competency),{exact:true}).check();
+ await expect(row).toHaveCount(1);
+ await filters.getByRole('combobox',{name:'Question type',exact:true}).selectOption('');
+ await filters.getByLabel(label('competency',competency),{exact:true}).uncheck();
+ await row.getByRole('checkbox',{name:`Select question: ${q.text}`,exact:true}).check();
+ await page.getByRole('button',{name:'Start Practice (1)',exact:true}).click();
+ await expect(page).toHaveURL(/\/practice\/sessions\/[\w-]+\/run$/);
+ await expect(page.locator('.chip').filter({hasText:label('questionType',type)})).toBeVisible();
+ await page.getByRole('radio',{name:'Type',exact:true}).check();
+ await page.getByRole('button',{name:'Start Answer',exact:true}).click();
+ await page.getByLabel('Your answer',{exact:true}).fill('제가 역할을 나누고 매일 진행 상황을 공유했습니다.');
+ await page.getByRole('button',{name:'Finish Answer'}).click();
+ await page.getByRole('button',{name:'Finish & Review'}).click();
+ await expect(page.getByRole('heading',{name:'Summary',exact:true})).toBeVisible();
+ const reviewStart=observed.length;
+ // Coaching notes and the practiced skills are folded under the Summary card's Details
+ await page.locator('.review-summary .summary-details > summary').click();
+ await expect(page.getByRole('heading',{name:'Coaching Notes'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Skills Practiced'})).toBeVisible();
+ await expect(page.getByText('1 question · 0 quotes',{exact:true})).toBeVisible();
+ await expect(page.locator('.competency-review h4').first()).toHaveText(label('competency',competency));
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+ const reviewLink=page.getByRole('link',{name:'Q1',exact:true}).first();
+ await reviewLink.focus(); await expect(reviewLink).toBeFocused();
+ const contrast = () => page.locator('.review-summary, details.answer-card').evaluateAll(cards => {
+   const luminance=(value:string)=>{const rgb=(value.match(/[\d.]+/g)??[]).slice(0,3).map(Number).map(n=>n/255).map(n=>n<=0.03928?n/12.92:((n+0.055)/1.055)**2.4);return 0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2];};
+   return Math.min(...cards.flatMap(card=>{const background=luminance(getComputedStyle(card).backgroundColor);return [...card.querySelectorAll('.muted,th')].map(el=>{const foreground=luminance(getComputedStyle(el).color);return (Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05);});}));
+ });
+ expect(await contrast()).toBeGreaterThanOrEqual(4.5);
+ await page.screenshot({path:test.info().outputPath('integrated-review-light.png'),fullPage:true});
+ await page.emulateMedia({colorScheme:'dark'});
+ expect(await contrast()).toBeGreaterThanOrEqual(4.5);
+ await page.screenshot({path:test.info().outputPath('integrated-review-dark.png'),fullPage:true});
+ const answer=page.locator('details.answer-card').first();
+ await answer.locator(':scope > summary').click();
+ await answer.getByText('Answer Outline',{exact:true}).click();
+ await expect(answer.getByText('From your answer:',{exact:false})).toContainText('제가 역할을 나누고');
+ const reviewRequests=observed.slice(reviewStart);
+ expect(reviewRequests.filter(r=>r.method==='POST'&&/\/(coach|debrief)$/.test(r.path))).toEqual([]);
+ const homeTaxonomy=observed.filter(r=>r.path==='/practice/taxonomy'&&r.method==='GET').length;
+ const questionGets=observed.filter(r=>r.path==='/practice/questions'&&r.method==='GET').length;
+ await page.goto('/practice/history');
+ await expect(page.getByLabel('Filter by skill',{exact:true})).toBeVisible();
+ await page.getByLabel('Filter by skill',{exact:true}).selectOption(taxonomy.competencies[0].key);
+ await expect(page.getByRole('link',{name:/^Practice · /}).first()).toBeVisible();
+ const callCounts={homeTaxonomyGets:homeTaxonomy,homeQuestionGetsIncludingEditorRefresh:questionGets,historyTaxonomyGets:observed.filter(r=>r.path==='/practice/taxonomy'&&r.method==='GET').length-homeTaxonomy,reviewExtraCoachingPosts:reviewRequests.filter(r=>r.method==='POST'&&/\/(coach|debrief)$/.test(r.path)).length};
+ console.log('Integrated review API counts',JSON.stringify(callCounts));
+ await test.info().attach('api-call-counts.json',{body:JSON.stringify(callCounts,null,2),contentType:'application/json'});
+});
+
+test('disabled taxonomy hides editing and selection controls',async({page,request})=>{
+ await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`분류 꺼짐 확인 ${Date.now()}`}});
+ await page.route('**/practice/taxonomy',route=>route.fulfill({json:{enabled:false,taxonomy_version:'interview-v1',question_types:[],competencies:[],max_competencies:3}}));
+ await page.goto('/practice');
+ await expect(page.getByRole('heading',{name:'Questions',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Delete',exact:true}).first()).toBeVisible();
+ await page.getByText('More Options',{exact:true}).click();
+ await expect(page.getByRole('group',{name:'Filters',exact:true}).getByRole('combobox',{name:'Source',exact:true})).toBeVisible();
+ await expect(page.getByLabel('Question type')).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Edit Tags'})).toHaveCount(0);
+ await page.getByRole('button',{name:'Add a Question',exact:true}).click();
+ await expect(page.getByRole('group',{name:'New Question',exact:true})).toBeVisible();
+ await expect(page.getByRole('group',{name:'Tags'})).toHaveCount(0);
+});
+
+test('legacy debrief remains readable as history and is excluded from current integrated findings', async ({page,request}) => {
+ const q=await (await request.post(`${API}/practice/questions`,{data:{category:'인성',text:`이전 회고 보존 ${Date.now()}`}})).json();
+ const s=await (await request.post(`${API}/practice/sessions`,{data:{mode:'free',question_ids:[q.id]}})).json();
+ await page.route(`**/practice/sessions/${s.id}`, async route => {
+   if (route.request().isNavigationRequest()) return route.continue();
+   const response=await route.fetch();
+   const body=await response.json();
+   await route.fulfill({response,json:{...body,debrief_status:'done',debrief:{lesson:'보관한 이전 버전의 교훈',next_action:'이전 행동',moments:[],input_status:'legacy_unverified'}}});
+ });
+ await page.goto(`/practice/sessions/${s.id}`);
+ // The Summary keeps the earlier lesson as one read-only line and says it may not match
+ const lesson=page.getByTestId('summary-lesson');
+ await expect(lesson.locator('[lang="ko"]')).toHaveText('“보관한 이전 버전의 교훈”');
+ await expect(lesson).toContainText('may not match your current answers');
+ await page.locator('.review-summary .summary-details > summary').click();
+ // Current findings (coaching notes, charts) never repeat it; the rest of the old record stays readable
+ await expect(page.locator('.summary-details')).not.toContainText('보관한 이전 버전의 교훈');
+ await expect(page.locator('.earlier-review')).toContainText('이전 행동');
+});
+
+test('generating questions offers no tag controls and sends no tags', async ({page,request}) => {
+ const taxonomy=await (await request.get(`${API}/practice/taxonomy`)).json();
+ test.skip(!taxonomy.enabled,'taxonomy schema is disabled');
+ await page.goto('/practice');
+ await page.getByText('Generate Questions from an Essay',{exact:true}).click();
+ const generate=page.locator('details').filter({has:page.getByText('Generate Questions from an Essay',{exact:true})});
+ // Generated questions come from templates, so tags chosen here would be ignored: there are none to choose
+ await expect(generate.getByRole('group',{name:/Tags/})).toHaveCount(0);
+ await expect(generate.getByLabel('Question type')).toHaveCount(0);
+ await generate.getByLabel('Essay',{exact:true}).fill(`캐시를 도입해 응답 시간을 ${Date.now()}ms 줄였습니다.`);
+ await generate.getByRole('spinbutton').fill('1');
+ const sent=page.waitForRequest(r=>r.method()==='POST'&&r.url().endsWith('/practice/questions/generate'));
+ await generate.getByRole('button',{name:'Generate Questions',exact:true}).click();
+ const body=(await sent).postDataJSON();
+ expect(body).not.toHaveProperty('question_type');
+ expect(body).not.toHaveProperty('competency_keys');
+});
