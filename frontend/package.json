@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "build:extension": "node ../scripts/build-extension-zip.mjs",
     "test:unit": "playwright test -c playwright.unit.config.ts",
     "test:e2e": "playwright test -c playwright.practice-track.config.ts",
     "test:auth": "playwright test -c playwright.team-auth.config.ts",

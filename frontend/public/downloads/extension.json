@@ -1,0 +1,10 @@
+{
+  "name": "JobSeeker Apply",
+  "version": "0.7.0",
+  "file": "/downloads/jobseeker-apply.zip",
+  "folder": "jobseeker-apply",
+  "bytes": 83952,
+  "sha256": "601feecf805b887b721dfd258f80f0995789c2573daa6436130c11e3cef46b15",
+  "minimumChromeVersion": "116",
+  "files": 18
+}
