@@ -3,7 +3,7 @@
 면접 연습·지원 관리(Practice·Track) 기능이 쓰는 테이블을 팀 Supabase 프로젝트에 넣는 순서다. Supabase 대시보드에 권한이 있는 팀원이 따라 한다. 먼저 읽기만 하는 점검을 돌리고, 그 판정에 맞는 파일만 실행한다.
 
 - 계획과 근거: [2026-11-17-supabase-apply-plan.md](2026-11-17-supabase-apply-plan.md)
-- 서버 설정값(주소·키)을 넣는 곳: [deploy-oracle.md](deploy-oracle.md) 5절
+- 서버 설정값(주소·키)을 넣는 곳: [deploy-azure.md](deploy-azure.md) 5절
 
 ## 1. 무엇이 생기고, 무엇은 그대로인가
 
@@ -92,7 +92,7 @@ create policy rec_own on storage.objects for all
 
 서버 설정 파일의 값으로 앱이 Supabase를 제대로 쓰는지 확인한다. 읽기만 한다.
 
-**Oracle 서버에서**
+**Azure 서버에서**
 
 ```bash
 sudo /opt/jobseeker/backend/.venv/bin/python /opt/jobseeker/scripts/practice-track/check_supabase.py \

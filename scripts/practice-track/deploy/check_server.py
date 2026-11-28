@@ -4,7 +4,7 @@
     python3 /opt/jobseeker/scripts/practice-track/deploy/check_server.py --domain <name>.duckdns.org --origin <team web>
 
 Checks, in order: the API on 127.0.0.1:8000, the same over https on the domain, a CORS preflight from the team web
-address, and memory use (an Oracle Always Free A1 instance under 20% memory use for 7 days may be reclaimed).
+address, and memory use (a 4 GB server close to full may stop a model or the API).
 Every line starts with PASS, WARN, FAIL or SKIP. Exit code 1 when any line is FAIL.
 """
 import argparse
@@ -16,7 +16,7 @@ import urllib.request
 
 LOCAL = "http://127.0.0.1:8000/health"
 TIMEOUT_SEC = 10
-RECLAIM_MEMORY_PERCENT = 20
+FULL_MEMORY_PERCENT = 90
 _AGAIN = "still loading; run this check again in a minute"
 
 
@@ -45,9 +45,9 @@ def _memory(meminfo: str) -> tuple[str, str]:
         return "WARN", "memory: could not read /proc/meminfo"
     used = round(100 * (total - available) / total)
     size = f"{total / 1048576:.1f} GB"
-    if used < RECLAIM_MEMORY_PERCENT:
-        return "WARN", (f"memory: {used}% of {size} in use. Oracle may reclaim an idle instance below "
-                        f"{RECLAIM_MEMORY_PERCENT}% memory use; check that both models are loaded")
+    if used >= FULL_MEMORY_PERCENT:
+        return "WARN", (f"memory: {used}% of {size} in use, over {FULL_MEMORY_PERCENT}%. "
+                        "Stop other programs, or pick a VM size with more memory")
     return "PASS", f"memory: {used}% of {size} in use"
 
 
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     lines = [line]
     public, _ = _read_health(f"https://{args.domain}/health",
                              "check that DuckDNS points to this server and ports 80/443 are open "
-                             "(Oracle security list and iptables); sudo journalctl -u caddy")
+                             "(Azure: the VM's network security group, inbound 80 and 443); sudo journalctl -u caddy")
     lines.append(public)
     lines.append(_cors(args.domain, args.origin.rstrip("/")) if args.origin
                  else ("SKIP", "CORS: pass --origin <team web address> to check it"))

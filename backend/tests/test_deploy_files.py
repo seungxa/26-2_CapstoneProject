@@ -1,4 +1,4 @@
-"""Deploy files for the Oracle ARM server (scripts/practice-track/deploy). No server, root or network here:
+"""Deploy files for the Ubuntu server (Azure VM) (scripts/practice-track/deploy). No server, root or network here:
 install.sh runs in --files-only mode into a temporary prefix, and the templates are checked as text."""
 import os
 import re

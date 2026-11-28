@@ -1,46 +1,34 @@
-# 기다리는 것이 오면 할 일
+# 남은 일과 순서
 
-지금 바깥에서 기다리는 것 다섯 가지와, 각각 왔을 때 할 일을 모았다. 오는 순서는 상관없다.
+2026-11-29 기준. 끝난 것: 팀 Supabase 적용·확인, PR #3 머지, DuckDNS `team-api.duckdns.org`.
 
-## 1. 팀 Supabase의 precheck 결과 (`supabase/precheck.sql`)
-- 첫 줄 `verdict`를 본다. 자세한 것은 [supabase-apply.md](supabase-apply.md) 3절.
-  - **NEW:** 그 팀원에게 `schema.sql` 한 번, 이어서 `supabase/migrations/` 7개를 파일 이름 순서대로 실행해 달라고 한다.
-  - **UPGRADE:** migration 7개만 실행해 달라고 한다.
-  - **STOP:** 실행하지 말고 결과 표를 그대로 공유받는다. 이름 충돌을 같이 정한다.
-- 테이블 줄에 `RLS off`가 있으면 그 줄에 적힌 `alter table … enable row level security;`를 실행해 달라고 한다.
-
-## 2. Supabase 접속 값 3개 (개인 톡으로)
-- 받을 값: Project URL, secret key(`sb_secret_…`), Session pooler 주소(DB 비밀번호 포함).
-- **Oracle 서버가 아직 없어도** PC에서 먼저 확인할 수 있다.
-  1. 저장소 **밖**에 `~/jobseeker-team.env`를 만든다. 형식은 [`api.env.example`](../../scripts/practice-track/deploy/api.env.example)과 같다. 만든 뒤 `chmod 600`.
-  2. 실행: `cd backend && .venv/bin/python ../scripts/practice-track/check_supabase.py --env-file ~/jobseeker-team.env`
-  3. 팀 웹에 로그인해 토큰을 복사했다면 `--token '<access_token>'`도 붙인다. 로그인 서명 방식까지 확인된다([supabase-apply.md](supabase-apply.md) 6절).
-
-## 3. 팀 웹 배포 주소
-1. **확장을 다시 빌드해 올린다.** 이걸 해야 그 주소의 웹과 확장이 연결된다.
-   ```bash
-   node scripts/practice-track/build-extension.mjs --web-origin https://<팀 웹 주소>
-   git add frontend/public/downloads && git commit -m "build(extension): connect to the team web address"
-   ```
-2. 서버 설정 파일(`/etc/jobseeker/api.env`, 서버가 없으면 위 `~/jobseeker-team.env`)의 `CORS_ORIGINS`에 그 주소를 넣는다.
-3. Supabase 팀원에게 부탁한다: Authentication → URL Configuration에 그 주소를 넣어 달라고.
-4. 프런트 팀원에게 부탁한다: 웹 배포 설정에 `VITE_API_URL=https://team-api.duckdns.org`를 넣어 달라고.
-
-## 4. Oracle 가입 완료
-- [deploy-oracle.md](deploy-oracle.md)를 2절부터 따라 한다. 도메인은 `team-api.duckdns.org`다.
-- DuckDNS의 IP를 새 서버의 공인 IP로 바꾸고 **update ip**를 누른다.
+## 1. Azure 서버 (정우)
+- [deploy-azure.md](deploy-azure.md)를 2절부터 따라 한다.
+- 설정값은 이 PC의 `~/jobseeker-team.env`에 모두 있다. `CORS_ORIGINS`에는 팀 웹 주소를 이미 넣어 두었다.
 - 설치가 끝나면 점검 두 가지를 돌린다.
-  - `check_server.py`(서버 상태)
-  - `check_supabase.py --env-file /etc/jobseeker/api.env`(Supabase 연결)
-- 이어서 꼬리질문 속도 재기(deploy-oracle.md 9절)와 첫 실사용 점검(8절)을 한다.
+  - `check_server.py --domain team-api.duckdns.org --origin https://jobseeker-topaz-three.vercel.app`
+  - `check_supabase.py --env-file /etc/jobseeker/api.env`
+- 이어서 꼬리질문 속도 재기(deploy-azure.md 10절).
 
-## 5. 시선 실측 3회 결과
-- 노트북에서 `node scripts/practice-track/start-gaze-lab.mjs`를 실행하고, `http://localhost:5181/src/features/practice-track/dev/gaze-lab.html`에서 3회 잰다.
+## 2. 팀 웹 설정 (프런트 담당에게 부탁)
+- 팀 웹 주소: **https://jobseeker-topaz-three.vercel.app** (GitHub 저장소 소개란의 홈페이지 주소, Vercel 배포).
+- 지금 배포본은 API 주소가 `http://localhost:8000`으로 빌드되어 있어서, 다른 사람 컴퓨터에서는 연습 기능이 서버를 찾지 못한다.
+- 서버가 뜬 뒤 부탁할 것: Vercel 프로젝트 → Settings → Environment Variables에 다음을 넣고 다시 배포.
+  - `VITE_API_URL=https://team-api.duckdns.org`
+  - (시선 실측을 통과하면) `VITE_GAZE_DIRECTION=true`
+- Supabase 담당에게 부탁할 것: Authentication → URL Configuration의 Site URL·Redirect URLs에 팀 웹 주소가 있는지 확인.
+- 다 되면 deploy-azure.md 9절(첫 실사용 점검)을 팀 웹에서 한다.
+
+## 3. 시선 실측 3회 (정우, 카메라 있는 노트북)
+- 시선 방향 기능은 코드에 들어 있지만 `VITE_GAZE_DIRECTION`이 꺼져 있어 화면에 나오지 않는다. 실측을 통과하면 켠다.
+- 노트북에서 한 번: 저장소를 받고 `cd frontend && npm ci`.
+- 잴 때: 저장소 루트에서 `node scripts/practice-track/start-gaze-lab.mjs` → 노트북 크롬에서 `http://localhost:5181/src/features/practice-track/dev/gaze-lab.html`.
+  - 카메라는 `localhost`나 https 주소에서만 켜진다. 데스크톱에서 띄우고 노트북으로 접속하는 방식은 안 된다.
+  - 서버·로그인·파이썬은 필요 없다. 영상과 좌표는 브라우저 밖으로 나가지 않는다.
 - 결과는 [gaze-direction-protocol.md](gaze-direction-protocol.md) 기록표에 적는다.
-- **3회 중 2회 이상 통과:** 웹 배포 설정에 `VITE_GAZE_DIRECTION=true`를 넣는다. 연습 화면에 10초 기준 잡기가 생기고, 회고에 시선 방향이 나온다.
-- **통과 못 함:** 꺼 둔 채로 두고, 실패 항목을 보고 기준값을 같이 정한다.
+- **3회 중 2회 이상 통과:** 2절의 `VITE_GAZE_DIRECTION=true`를 부탁한다.
+- **통과 못 함:** 꺼 둔 채로 두고, 실패 항목을 보고 기준값을 다시 정한다.
 
-## 팀원 답을 기다리는 확인 (A3)
-- seungxa가 [extension-contract.md](extension-contract.md) 6절에 답하면, 그 결정에 맞춰 확장을 고친다.
-  - 예: 제출 감지 → 지원 관리 기록을 넣을지
-- 고친 뒤에는 zip을 다시 빌드한다.
+## 4. 시연이 끝나면
+- Azure 리소스 그룹 `jobseeker`를 삭제한다(deploy-azure.md 12절).
+- Supabase secret key와 DB 비밀번호를 바꾼다(대화에 노출된 적이 있다).

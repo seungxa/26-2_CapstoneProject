@@ -61,10 +61,17 @@ def test_auth_disabled_fails():
     assert "FAIL" in grades(check_server.evaluate(health(auth_disabled=True), meminfo(40)))
 
 
-def test_low_memory_warns_about_reclaim():
+def test_low_memory_use_passes():
+    """The Azure VM is not reclaimed when idle (that was Oracle's rule): little memory in use is fine."""
     lines = check_server.evaluate(health(), meminfo(10, total_kb=6_000_000))
     [(grade, text)] = [line for line in lines if "memory" in line[1].lower()]
-    assert grade == "WARN" and "20%" in text and "10%" in text
+    assert grade == "PASS" and "10%" in text
+
+
+def test_nearly_full_memory_warns():
+    lines = check_server.evaluate(health(), meminfo(92))
+    [(grade, text)] = [line for line in lines if "memory" in line[1].lower()]
+    assert grade == "WARN" and "92%" in text and "90%" in text
 
 
 @pytest.mark.parametrize("bad", ["", "MemTotal: 0 kB\n", "nonsense"])

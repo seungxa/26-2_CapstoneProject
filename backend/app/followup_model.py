@@ -111,8 +111,8 @@ def _loader(cfg):
         path = hf_hub_download(repo_id=repo, filename=name, cache_dir=cache)
     # n_threads_batch too: llama.cpp would otherwise use every core for reading the prompt.
     # use_mmap=False reads the weights into the process's own memory instead of mapping the file: the model then counts
-    # as used memory (an Oracle Always Free A1 instance under 20% memory use for 7 days may be reclaimed), and the OS
-    # cannot drop its pages while the server is idle, so the first request after a quiet night does not read them again
+    # as used memory, and the OS cannot drop its pages while the server is idle, so the first request after a quiet
+    # night does not read them again
     return Llama(model_path=path, n_ctx=N_CTX, n_threads=cfg.followup_threads,
                  n_threads_batch=cfg.followup_threads, use_mmap=False, verbose=False)
 

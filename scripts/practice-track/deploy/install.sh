@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Set up the JobSeeker practice API on an Oracle Always Free ARM server (Ubuntu 24.04 aarch64).
-#   sudo git clone -b <branch> https://github.com/seungxa/26-2_CapstoneProject.git /opt/jobseeker
+# Set up the JobSeeker practice API on an Ubuntu 24.04 server (Azure VM, x86-64; ARM works too).
+#   sudo git clone https://github.com/seungxa/26-2_CapstoneProject.git /opt/jobseeker
 #   sudo /opt/jobseeker/scripts/practice-track/deploy/install.sh <name>.duckdns.org
 # Running it again (after `sudo git -C /opt/jobseeker pull`) updates packages, files and services and keeps
-# /etc/jobseeker/api.env as it is. Guide: docs/practice-track/deploy-oracle.md
+# /etc/jobseeker/api.env as it is. Guide: docs/practice-track/deploy-azure.md
 #
 # --files-only <domain>: only write the config files, under $JOBSEEKER_PREFIX (tests; no root needed).
 set -euo pipefail
@@ -105,9 +105,6 @@ install_packages() {
     echo "Caddy $version is older than 2.11.6; the Caddyfile needs the write_idle timeout" >&2
     exit 1
   fi
-  if [[ $(uname -m) != aarch64 ]]; then
-    echo "Note: this is $(uname -m), not the aarch64 server the guide describes. Continuing."
-  fi
 }
 
 create_user() {
@@ -126,7 +123,7 @@ install_python() {
   "$venv/bin/pip" install -q -r "$repo/backend/requirements.txt" -c "$repo/backend/requirements-lock.txt"
   "$venv/bin/pip" install -q -r "$repo/backend/requirements-followup.txt" -c "$repo/backend/requirements-lock.txt"
   if ! "$venv/bin/python" -c 'import faster_whisper, llama_cpp'; then
-    echo "The speech or follow-up library does not load on this CPU. See 'Troubleshooting' in docs/practice-track/deploy-oracle.md" >&2
+    echo "The speech or follow-up library does not load on this CPU. See 'Troubleshooting' in docs/practice-track/deploy-azure.md" >&2
     exit 1
   fi
 }
@@ -144,7 +141,8 @@ open_port() {
   if iptables -C INPUT -p tcp -m state --state NEW --dport "$port" -j ACCEPT 2>/dev/null; then
     return
   fi
-  # Oracle's Ubuntu image ends INPUT with a REJECT rule: the new rule must come before it
+  # Some images (Oracle's Ubuntu) end INPUT with a REJECT rule: the new rule must come before it.
+  # Azure's image accepts everything here (its network security group is the firewall), so this changes nothing there
   at=$(iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" {print $1; exit}')
   iptables -I INPUT "${at:-1}" -p tcp -m state --state NEW --dport "$port" -j ACCEPT
   echo "Opened TCP $port"
@@ -170,7 +168,7 @@ download_models() {
   run_as_service app.stt download
   # The follow-up model is optional (fixed questions are used without it): a failure is a warning, not the end
   run_as_service app.followup_model download ||
-    echo "Warning: the follow-up model could not be prepared; the app uses fixed follow-up questions. See 'Troubleshooting' in docs/practice-track/deploy-oracle.md" >&2
+    echo "Warning: the follow-up model could not be prepared; the app uses fixed follow-up questions. See 'Troubleshooting' in docs/practice-track/deploy-azure.md" >&2
 }
 
 install_packages
